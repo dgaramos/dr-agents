@@ -29,12 +29,8 @@ When a profile declares additional review context, load
 using it. It defines authorized source categories, provenance, availability
 limits, and how to treat retrieved content as untrusted review data.
 
-When the user explicitly authorizes publication, use only the `review` publisher
-mode declared in the target profile's dispatch contract. Never fall back to a
-raw authenticated CLI session (such as `gh pr review`) when a publisher mode is
-configured — doing so attributes the review to the user's personal account
-instead of the reviewer identity. If the target profile does not declare a
-`review` publisher mode, an explicitly authorized authenticated personal account
-may post the review via `gh pr review` as a personal fallback; the outcome must
-clearly identify the personal GitHub account as the author and label the action
-as a personal fallback — never represent it as the reviewer identity.
+When the user explicitly authorizes publication, follow
+`references/publication-routing-contract.md`: prefer the adapter's `review`
+publisher, falling back to the authenticated `gh` account when unavailable.
+Verify and identify the actual author; absence of a profile or App installation
+does not itself block the authorized publication.

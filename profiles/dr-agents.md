@@ -57,16 +57,16 @@ DR publisher, and verify the resulting author is `claudio-dr[bot]`.
 - **Project:** `Agent Workflows` (`11`), status `In Progress` while active
 - **Reviewers:** only when explicitly requested
 
-After shipping, apply and verify every declared field. Do not silently omit a
-field because a CLI command or permission failed.
+After shipping, apply and verify ordinary metadata as the current adapter App.
+The user-owned Project is separate: use the authorized local `gh` account and
+report its actor, or report Project pending without blocking delivery.
 
 Dispatch the matching `apply-pr-metadata` publisher workflow with base `main`,
-the selected labels, milestone number `3`, assignee `dgaramos`, and Project
-owner `dgaramos`, number `11`, status `In Progress`. Wait for and verify the
-matching App result. If it is unavailable or fails, an explicitly
-user-authorized authenticated personal account may apply and verify the same
-fields as a personal fallback; report that account and never present it as the
-App. Reviewers remain absent unless explicitly requested.
+the selected labels, milestone number `3`, and assignee `dgaramos`. Wait for
+and verify the matching App result; ordinary metadata failure must be reported
+as a failure. Use Project owner `dgaramos`, number `11`, status `In Progress`
+only in the separate local Project step. Omit Project inputs from the App
+dispatch. Reviewers remain absent unless explicitly requested.
 
 ## PR description
 
@@ -99,6 +99,7 @@ requested mode, return publication-ready text as `not published`.
 
 ## Cody DR publisher modes
 
+- `create-pr`: `.github/workflows/publish-cody-pr.yml`
 - `review`: `.github/workflows/publish-cody-review.yml`
 - `apply-pr-metadata`: `.github/workflows/publish-cody-pr-metadata.yml`
 - `reply`: `.github/workflows/publish-cody-reply.yml`
@@ -127,19 +128,20 @@ adapter identity and its publisher workflow.
 
 ## Personal publication fallback
 
-For a requested reply or resolution, use the matching reviewer App first when
-its operation is configured and usable. Only when that operation is
-unconfigured or unavailable before dispatch may an explicitly authorized,
-authenticated personal account publish the prepared thread action. The outcome
-must name that actor as a personal fallback and must never claim it is Cody DR
-or Claudio DR. An App dispatch or author-verification failure is a failed
-publication, not a fallback condition.
+For every authorized publication, follow
+`core/pr-review/references/publication-routing-contract.md`. Use the matching
+App whenever available. Personal fallback requires observed evidence that
+the operation is unavailable, not just a missing profile or generic error.
+Announce the reason, verify the actual actor, and label the fallback. The
+existing authorization covers the route change; it does not authorize extra
+publications. Inspect uncertain outcomes before retrying under any account.
 
 Neither App submits `REQUEST_CHANGES`. Findings are published as a `COMMENT`;
 whether they block merging is decided by a human reviewer.
 
 ## Claudio DR publisher modes
 
+- `create-pr`: `.github/workflows/publish-claudio-pr.yml`
 - `review`: `.github/workflows/publish-claudio-review.yml`
 - `apply-pr-metadata`: `.github/workflows/publish-claudio-pr-metadata.yml`
 - `reply`: `.github/workflows/publish-claudio-reply.yml`
@@ -155,6 +157,14 @@ Claudio DR App.
 
 Issue creation follows the same inputs and verification requirement, with
 `claudio-dr[bot]` as the expected author.
+
+## Pull request creation
+
+Both `create-pr` publishers accept `title`, completed Markdown `body`,
+`head_branch`, and `base_branch`. Dispatch on the repository default branch,
+wait for completion, and verify the resulting App author, repository, branches,
+title, and body. An identical retry reuses the existing PR; a mismatched
+existing PR fails verification. Creating a PR requires Pull requests write.
 
 ## Boundaries
 

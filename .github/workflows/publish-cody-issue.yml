@@ -72,6 +72,9 @@ jobs:
              + (if $assignees == "" then {} else {assignees: ($assignees | split(",") | map(select(length > 0)))} end)
              + (if $milestone == "" then {} else {milestone: ($milestone | tonumber)} end)' > issue.json
           if [[ -n "$ISSUE_NUMBER" ]]; then
+            [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "issue_number must be a positive integer" >&2; exit 1; }
+            existing_author="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" --jq .user.login)"
+            [[ "$existing_author" == "$EXPECTED_AUTHOR" ]] || { echo "unexpected existing issue author: $existing_author" >&2; exit 1; }
             gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" --input issue.json > created-issue.json
           else
             gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" --input issue.json > created-issue.json

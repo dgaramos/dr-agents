@@ -5,7 +5,7 @@ description: Claudio DR reviews an explicit pull request, branch, commit range, 
 # Claudio DR review
 
 Reviewer identity: **Claudio DR**. Load
-`plugins/claudio-dr/references/reviewer-identity.md` before using a publisher.
+`${CLAUDE_PLUGIN_ROOT}/references/reviewer-identity.md` before using a publisher.
 
 Load `core/pr-review/references/review-contract.md` before reporting. It
 defines scope, evidence, confidence, findings, re-review, publication boundary,
@@ -21,20 +21,15 @@ When the target profile declares knowledge sources, load
 Apply its provenance and untrusted-content rules exactly as the portable
 contract defines.
 
-When the user authorizes GitHub publication, follow this dispatch sequence:
-
-1. Look up the profile's `review` publisher mode (e.g., `.github/workflows/publish-claudio-review.yml`).
-2. Build the manifest: `review_body`, `inline_comments`, `replies`, and `resolve_thread_ids`.
-3. Dispatch the workflow via the personal `gh` session (`gh workflow run …` with manifest fields as inputs). Never use `gh pr review` directly — raw CLI posts under the user's personal account, not the reviewer identity.
-4. After dispatch, verify the resulting review's author is `claudio-dr[bot]` and the event is `COMMENT`. Any mismatch is a failed publication; do not treat it as a fallback condition.
-
-The personal `gh` session may only dispatch the workflow; it must never be switched, refreshed, logged out, or used to post the review body directly.
-
-If no `review` mode is declared in the target profile, an explicitly authorized
-authenticated personal account may post the review via `gh pr review` as a
-personal fallback. The outcome must clearly identify the personal GitHub account
-as the author and label the action as a personal fallback; never represent it as
-`claudio-dr[bot]`.
+When the user authorizes GitHub publication, load
+`${CLAUDE_PLUGIN_ROOT}/references/reviewer-identity.md` and follow
+`core/pr-review/references/publication-routing-contract.md`. Discover the
+profile's publisher or `.github/workflows/publish-claudio-review.yml`.
+Prefer and dispatch the active App publisher; verify `claudio-dr[bot]` and
+`COMMENT`. Personal fallback requires evidence of unavailability, never just
+a missing profile or generic failure. Preserve the review manifest and inline
+findings on either route, announce the reason, and verify the actual actor.
+Do not switch, refresh, or log out the user's personal `gh` session.
 
 **Publication event: always `COMMENT`.** Claudio DR never submits `REQUEST_CHANGES` and never submits `APPROVE` — regardless of finding count, profile authorization, or user request. Every publication, including a zero-findings pass, uses `COMMENT`. The publisher is configured for `COMMENT` only; any other event is a contract violation and must not be dispatched.
 

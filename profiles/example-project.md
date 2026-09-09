@@ -119,8 +119,9 @@ target match the configured reviewer identity.
 <!-- For each supported reviewer App (Claudio DR, Cody DR, or both),
      document at minimum: reviewer identity, dispatch method, reply mode,
      resolution mode, and create-issue mode.
-     A mode that is not documented signals it is unavailable; the adapter
-     returns the prepared content as `not published`.
+     Without a declared mode, discover the adapter's documented workflow paths.
+     Follow publication-routing-contract.md: prefer the App, and require
+     evidence of unavailability before selecting authenticated personal fallback.
 
 Example block for one reviewer:
 

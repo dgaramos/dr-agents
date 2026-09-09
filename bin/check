@@ -46,6 +46,17 @@ readonly required_paths=(
   ".github/workflows/publish-claudio-reply.yml"
   ".github/workflows/publish-claudio-resolve.yml"
   ".github/workflows/publish-cody-pr-metadata.yml"
+  ".github/workflows/publish-cody-pr.yml"
+  ".github/workflows/publish-claudio-pr.yml"
+  ".github/scripts/publish-pr.sh"
+  "core/pr-review/references/publication-routing-contract.md"
+  "core/pr-review/scripts/select-publisher.sh"
+  "examples/generic-app-delivery.md"
+  "docs/app-publishing.md"
+  "plugins/cody-dr/scripts/commit.sh"
+  "plugins/claudio-dr/scripts/commit.sh"
+  "plugins/cody-dr/workflows/publish-cody-pr.yml"
+  "plugins/claudio-dr/workflows/publish-claudio-pr.yml"
   ".github/workflows/publish-claudio-pr-metadata.yml"
   ".github/scripts/publish-review.sh"
   ".github/scripts/publish-claudio-thread-action.sh"
@@ -304,11 +315,11 @@ readonly claudio_identity="plugins/claudio-dr/references/reviewer-identity.md"
 grep -qF '| Display name | Cody DR |' "$cody_identity"
 grep -qF '| Publisher | Cody DR GitHub App |' "$cody_identity"
 grep -qF '| Verified GitHub actor | `cody-dr[bot]` |' "$cody_identity"
-grep -qF '| Co-authored-by trailer | `Co-Authored-By: cody-dr[bot] <cody-dr[bot]@users.noreply.github.com>` |' "$cody_identity"
+grep -qF '| Co-authored-by trailer | `Co-Authored-By: cody-dr[bot] <318732897+cody-dr[bot]@users.noreply.github.com>` |' "$cody_identity"
 grep -qF '| Display name | Claudio DR |' "$claudio_identity"
 grep -qF '| Publisher | Claudio DR GitHub App |' "$claudio_identity"
 grep -qF '| Verified GitHub actor | `claudio-dr[bot]` |' "$claudio_identity"
-grep -qF '| Co-authored-by trailer | `Co-Authored-By: claudio-dr[bot] <claudio-dr[bot]@users.noreply.github.com>` |' "$claudio_identity"
+grep -qF '| Co-authored-by trailer | `Co-Authored-By: claudio-dr[bot] <318764128+claudio-dr[bot]@users.noreply.github.com>` |' "$claudio_identity"
 
 grep -qF 'cody-dr[bot]' profiles/dr-agents.md
 grep -qF 'claudio-dr[bot]' profiles/dr-agents.md
@@ -361,6 +372,10 @@ tests/test_apply_pr_metadata.sh
 tests/test_publish_claudio_thread_action.sh
 tests/test_publish_cody_thread_action.sh
 tests/test_publish_pr_metadata.sh
+bash tests/test_adapter_commits.sh
+bash tests/test_publish_pr.sh
+bash tests/test_select_publisher.sh
+bash tests/test_install_workflows.sh
 tests/test_discover_project_profile.sh
 tests/test_plugin_core_bundles.sh
 tests/test_helper_agents.sh
@@ -500,9 +515,9 @@ for skill in "${adapter_findings_skills[@]}"; do
 done
 
 grep -qF '## Publisher-first thread actions' core/findings-handling/references/findings-contract.md
-grep -qF 'unavailable **before dispatch**' core/findings-handling/references/findings-contract.md
-grep -qF 'Do not use a personal fallback after an App dispatch' core/findings-handling/references/findings-contract.md
-grep -qF 'do not reclassify it as an unavailable publisher.' core/findings-handling/references/findings-contract.md
+grep -qF 'publication-routing-contract.md' core/findings-handling/references/findings-contract.md
+grep -qF 'evidence proves the App operation unavailable' core/pr-review/references/publication-routing-contract.md
+grep -qF 'Permission errors, failed discovery, timeouts' core/pr-review/references/publication-routing-contract.md
 grep -qF '**Publication identity:**' core/findings-handling/references/findings-contract.md
 
 # UI-significance hook in findings-contract.md (core/findings-handling/references/findings-contract.md).
@@ -533,23 +548,13 @@ done
 grep -qF 'cody-dr[bot]' plugins/cody-dr/skills/author-issue/SKILL.md
 grep -qF 'claudio-dr[bot]' plugins/claudio-dr/skills/author-issue/SKILL.md
 
-# Issue creation must never fall back to user-authenticated authorship.
-# The core contract and both adapter skills must carry an explicit prohibition.
 readonly issue_contract="core/issue-authoring/references/issue-contract.md"
-if ! grep -qF 'gh issue create' "$issue_contract"; then
-  echo "drift: $issue_contract does not explicitly forbid gh issue create" >&2
-  exit 1
-fi
-if ! grep -qF 'no fallback to user authorship' \
-    plugins/claudio-dr/skills/author-issue/SKILL.md; then
-  echo "drift: claudio-dr author-issue SKILL.md does not state the no-fallback rule" >&2
-  exit 1
-fi
-if ! grep -qF 'no fallback to user authorship' \
-    plugins/cody-dr/skills/author-issue/SKILL.md; then
-  echo "drift: cody-dr author-issue SKILL.md does not state the no-fallback rule" >&2
-  exit 1
-fi
+for contract in "$issue_contract" "${adapter_author_issue_skills[@]}"; do
+  grep -qF 'publication-routing-contract.md' "$contract" || {
+    echo "drift: $contract must use evidence-based App-first publication routing" >&2
+    exit 1
+  }
+done
 
 # Adapter reviewer agents must bind to the review-pr skill (parity check).
 readonly adapter_reviewer_agents=(
@@ -838,22 +843,19 @@ if [[ "${_IN_GIT_REPO}" == "1" ]]; then
 fi
 
 # Validate that branch commits use one recognized adapter co-author identity.
-# The catalog is executable by both Cody DR and Claudio DR; mixing identities
-# within one branch would make its execution provenance ambiguous.
 # In shallow clones (e.g. CI with fetch-depth != 0) git merge-base may fail;
 # emit a warning and skip the check rather than producing false positives.
 # When running from an extracted tarball (no git repo) this check is skipped.
 if [[ "${_IN_GIT_REPO}" == "1" ]]; then
   if merge_base="$(git merge-base HEAD main 2>/dev/null)"; then
-    branch_log="$(git log "${merge_base}..HEAD" --format="%B")"
-    if [[ -n "$branch_log" ]]; then
-      branch_adapters="$(echo "$branch_log" | sed -nE 's/^Co-Authored-By: (cody-dr|claudio-dr)\[bot\] <.*>$/\1/p' | sort -u)"
-      if [[ "$(echo "$branch_adapters" | sed '/^$/d' | wc -l | tr -d ' ')" -gt 1 ]]; then
-        echo "trailer: branch commits mix Cody DR and Claudio DR identities" >&2
-        echo "  observed: $branch_adapters" >&2
-        exit 1
-      fi
-    fi
+    while IFS= read -r commit; do
+      trailers="$(git show -s --format=%B "$commit" | git interpret-trailers --parse)"
+      agent_trailers="$(printf '%s\n' "$trailers" | grep -Ei '^Co-Authored-By: (cody-dr|claudio-dr|Claude|Codex)([^[:alnum:]]|$)' || true)"
+      case "$agent_trailers" in
+        'Co-Authored-By: cody-dr[bot] <318732897+cody-dr[bot]@users.noreply.github.com>'|'Co-Authored-By: claudio-dr[bot] <318764128+claudio-dr[bot]@users.noreply.github.com>') ;;
+        *) echo "trailer: $commit must contain exactly one canonical adapter co-author" >&2; exit 1 ;;
+      esac
+    done < <(git rev-list --no-merges "${merge_base}..HEAD")
   else
     echo "warning: cannot resolve merge-base with main; trailer identity check skipped (shallow clone?)" >&2
   fi

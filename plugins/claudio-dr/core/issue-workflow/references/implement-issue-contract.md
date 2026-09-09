@@ -32,6 +32,10 @@ confirmed branch, issue reference, and test-first plan.
    message — never the generic model or CLI identity, and never the trailer
    belonging to a different adapter (e.g. a Claudio DR execution must not
    carry the `cody-dr[bot]` trailer and vice versa).
+   Use the adapter's commit helper when supplied and inspect the resulting
+   commit trailers before pushing; a promise in the message draft is not
+   verification. Preserve human co-authors and the user's Git author/signing
+   configuration. Co-authorship does not imply cryptographic signing.
 8. Do not push, open a PR, or touch files outside the issue's stated scope.
 
 ## Output

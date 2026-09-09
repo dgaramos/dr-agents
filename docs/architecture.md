@@ -114,7 +114,7 @@ flowchart TD
     PUB["Publisher\ngenerates installation token\nposts as reviewer bot · verifies authorship"]
 
     U --> AD --> CO --> PR --> OUT
-    OUT -->|"only with explicit user authorization\n+ profile publisher"| PUB
+    OUT -->|"authorized publication\nApp-first routing with evidence-based fallback"| PUB
 ```
 
 ## Publication model
@@ -124,13 +124,15 @@ Every external action follows the same three-step gate:
 1. **Authorization** — an explicit issue-execution request authorizes its
    branch, commits, push, and PR. Review, reply, resolution, and issue creation
    each remain separately authorized.
-2. **Publisher** — the target profile must document the publisher mode. Without
-   it, the skill returns `not published`.
+2. **Publisher** — discover the App publisher using profile guidance and adapter
+   workflow paths. Prefer the App; personal fallback requires proven
+   unavailability, not merely a missing profile or a lookup error.
 3. **Verification** — after every publisher action, the adapter verifies that
-   the author, event, and target match the expected reviewer identity.
+   the author, event, and target match the selected App or personal actor.
 
-The personal `gh` session dispatches the publisher but is never used to
-impersonate the reviewer or to post directly.
+The personal `gh` session dispatches an available App publisher, or publishes
+as the verified personal actor on an evidenced fallback. It never impersonates
+the App. See the [routing contract](../core/pr-review/references/publication-routing-contract.md).
 
 For a repository-neutral walkthrough of `start-issue`, `implement-issue`, and
 `ship-issue`, including dependency and quality-gate handoffs, see the

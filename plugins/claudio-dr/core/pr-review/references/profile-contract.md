@@ -40,21 +40,24 @@ A profile that provides a publisher must document:
 - **create-issue mode**: how to create a GitHub issue (repository, title, body,
   and profile-owned fields such as labels, assignees, milestone, and Projects);
   required if the adapter supports issue authoring via the publisher.
+- **create-pr mode**: how to create a pull request as the adapter App, with
+  title, completed body, pushed head branch, base branch, and actor verification.
+- **apply-pr-metadata mode**: how to apply ordinary metadata using the App
+  without querying Projects. Declare Projects separately, including owner type,
+  available authentication, and whether an authorized personal fallback exists.
 
-A profile that does not document one of these modes signals that the operation
-is unavailable and the adapter must return the prepared content as `not
-published`. This does not imply that the reviewer App is inactive.
+A profile that does not document a mode signals that the App operation is
+unavailable. Apply `publication-routing-contract.md` for personal fallback;
+the same rule applies when no profile exists.
 
 ### Personal fallback
 
-For a requested operation, a profile may allow an explicitly authorized
-authenticated personal account only when the matching reviewer-App operation is
-unconfigured or unavailable before dispatch. When the operation has a usable
-configured App publisher, use and verify that App; do not fall back to a
-personal identity. A dispatched App publication or post-publication
-verification failure is a failed publication, never a fallback. A personal
-fallback must name its authenticated actor and must never represent itself as a
-configured App reviewer.
+Follow `publication-routing-contract.md`. An authorized operation uses the App
+when available and the existing authenticated `gh` account otherwise, unless
+the user or repository requires App-only publication. No extra approval is
+needed just because an App or profile is absent. Verify the actual personal
+actor and label the fallback. Inspect ambiguous or partial publication before
+retrying; never treat a mismatched actor or target as successful publication.
 
 ### Post-publication verification
 

@@ -1,6 +1,6 @@
 {
   "name": "cody-dr",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Portable PR review, findings, issue authoring, and issue-delivery workflows for Codex.",
   "author": {
     "name": "Danilo Ramos",

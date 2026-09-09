@@ -104,53 +104,38 @@ the draft:
 - issue templates
 
 When a profile supplies these values, apply them exactly. When no profile is
-loaded, produce the draft body only; state that profile-owned fields are
-unknown.
+loaded, use known repository guidance and state which metadata is unknown.
+Do not invent missing profile-owned fields or block an otherwise authorized
+publication solely because no profile exists.
 
 ## Publication boundary
 
-Publish only when the user explicitly authorizes it and the target profile
-documents a `create-issue` publisher mode.
+Publish only when the user explicitly authorizes issue publication. Follow
+`core/pr-review/references/publication-routing-contract.md`: use the executing
+adapter's `create-issue` App publisher whenever available. An absent profile
+does not itself justify personal fallback; discover the documented publisher.
 
-Without a publisher or authorization, return the complete formatted draft as
-`not published`.
-
-After publishing, verify that the created issue's author matches the configured
-reviewer bot identity. If verification fails, report the failure and do not mark
-the issue as published.
-
-## Direct authorship prohibition
-
-`gh issue create` and any direct GitHub API call authenticated as the
-human user are **forbidden** for issue creation under all circumstances.
-
-- If the profile declares a `create-issue` publisher: dispatch that workflow.
-  Direct API calls or `gh issue create` as the authenticated user are not an
-  acceptable substitute, even when the workflow is unavailable or fails.
-- If the profile has no `create-issue` publisher: return the draft as
-  `not published`. Do not fall back to user-authenticated authorship.
-
-The personal-account fallback documented in reviewer contracts applies only to
-review operations when no bot publisher is configured. It does not extend to
-issue creation under any circumstance.
+If evidence proves the App operation unavailable, the existing authenticated
+`gh` account may publish the authorized issue unless App-only publication is
+required. Announce the reason and verify the actual personal author. Without
+authorization or a usable route, return the complete draft as `not published`.
 
 ## Publication mechanics
 
-When publication is authorized, follow these steps exactly:
+1. Resolve the route through the publication routing contract. Dispatch an
+   available App workflow with title, body, and declared metadata inputs.
+   Never choose `gh issue create` or a personal API call merely for convenience.
+2. For a proven-unavailable App publisher, use structured REST requests through
+   the authenticated personal `gh` account. Do not query Projects while
+   creating an ordinary issue; handle Project membership separately.
+3. Retain the applicable repository issue template's headings and structure.
+   Without a profile, read repository guidance and use only known metadata;
+   do not invent labels, milestones, or Project requirements.
+4. Retrieve the created issue and verify author, repository, title, and body
+   against the selected route. A mismatched author or target is a failed
+   publication; inspect any existing result before retrying. A failure whose
+   publication outcome is unknown must never trigger blind personal fallback.
 
-1. Dispatch the profile's `create-issue` workflow, passing: `title`, `body`,
-   `labels`, `assignees`, and `milestone`. Do not omit fields that the profile
-   declares — pass them as workflow inputs.
-2. Never use a direct GitHub API call authenticated as a human user. The
-   `create-issue` mode is the only permitted publication path.
-3. The issue body must conform to the profile-declared template structure. Match
-   every section heading in the repository's `.github/ISSUE_TEMPLATE/` template;
-   do not add or remove sections.
-4. After the workflow completes, retrieve the created issue and inspect its
-   `author.login`. If it does not match the configured reviewer bot identity
-   (e.g. `claudio-dr[bot]`), mark the issue as `not published` and report the
-   mismatch. Do not fall back to user authorship — a bot-identity failure is a
-   hard stop, not a degraded-mode trigger.
 ## Draft summary
 
 Emit one summary block per authoring session:

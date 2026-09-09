@@ -110,7 +110,7 @@ trailer so that automated tooling can attribute work correctly:
 ```bash
 git commit -m "docs(contributing): add contributor guide
 
-Co-Authored-By: claudio-dr[bot] <claudio-dr[bot]@users.noreply.github.com>"
+Co-Authored-By: claudio-dr[bot] <318764128+claudio-dr[bot]@users.noreply.github.com>"
 ```
 
 Commit descriptions are concise, imperative, and written in English. Include
