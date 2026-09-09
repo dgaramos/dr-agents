@@ -47,14 +47,30 @@ if [[ -n "$project_owner$project_number$project_status" ]] && [[ -z "$project_ow
 fi
 
 pr_ref="$pr"
-for label in "${labels[@]}"; do gh pr edit "$pr_ref" --repo "$repo" --add-label "$label"; done
+observed="$(gh api "repos/${repo}/pulls/${pr}")"
+jq -e --arg base "$base" '.base.ref == $base' <<<"$observed" >/dev/null || { echo "metadata verification failed: base branch" >&2; exit 1; }
+for label in "${labels[@]}"; do
+  jq -n --arg label "$label" '{labels: [$label]}' | gh api --method POST "repos/${repo}/issues/${pr}/labels" --input - >/dev/null
+done
 milestone_title="$milestone"
 if [[ "$milestone" =~ ^[0-9]+$ ]]; then
   milestone_title="$(gh api "repos/${repo}/milestones/${milestone}" --jq .title)"
+elif [[ -n "$milestone" ]]; then
+  milestone="$(gh api --paginate "repos/${repo}/milestones?state=all&per_page=100" | jq -se --arg title "$milestone_title" '[.[][] | select(.title == $title) | .number] | if length == 1 then .[0] else error("milestone must resolve uniquely") end')"
 fi
-[[ -z "$milestone_title" ]] || gh pr edit "$pr_ref" --repo "$repo" --milestone "$milestone_title"
-for assignee in "${assignees[@]}"; do gh pr edit "$pr_ref" --repo "$repo" --add-assignee "$assignee"; done
-for reviewer in "${reviewers[@]}"; do gh pr edit "$pr_ref" --repo "$repo" --add-reviewer "$reviewer"; done
+if [[ -n "$milestone" ]]; then
+  jq -n --argjson milestone "$milestone" '{milestone: $milestone}' | gh api --method PATCH "repos/${repo}/issues/${pr}" --input - >/dev/null
+fi
+for assignee in "${assignees[@]}"; do
+  jq -n --arg assignee "$assignee" '{assignees: [$assignee]}' | gh api --method POST "repos/${repo}/issues/${pr}/assignees" --input - >/dev/null
+done
+for reviewer in "${reviewers[@]}"; do
+  if [[ "$reviewer" == */* ]]; then
+    jq -n --arg reviewer "${reviewer#*/}" '{team_reviewers: [$reviewer]}'
+  else
+    jq -n --arg reviewer "$reviewer" '{reviewers: [$reviewer]}'
+  fi | gh api --method POST "repos/${repo}/pulls/${pr}/requested_reviewers" --input - >/dev/null
+done
 
 if [[ -n "$project_owner" ]]; then
   project_json="$(gh project view "$project_number" --owner "$project_owner" --format json)"
@@ -67,14 +83,19 @@ if [[ -n "$project_owner" ]]; then
   gh project item-edit --id "$item_id" --project-id "$project_id" --field-id "$field_id" --single-select-option-id "$option_id"
 fi
 
-observed="$(gh pr view "$pr_ref" --repo "$repo" --json baseRefName,labels,milestone,assignees,reviewRequests,projectItems)"
-jq -e --arg base "$base" '.baseRefName == $base' <<<"$observed" >/dev/null || { echo "metadata verification failed: base branch" >&2; exit 1; }
+observed="$(gh api "repos/${repo}/pulls/${pr}")"
+jq -e --arg base "$base" '.base.ref == $base' <<<"$observed" >/dev/null || { echo "metadata verification failed: base branch" >&2; exit 1; }
 for label in "${labels[@]}"; do jq -e --arg value "$label" 'any(.labels[]; .name == $value)' <<<"$observed" >/dev/null || { echo "metadata verification failed: label $label" >&2; exit 1; }; done
 if [[ -n "$milestone_title" ]]; then jq -e --arg value "$milestone_title" '.milestone.title == $value' <<<"$observed" >/dev/null || { echo "metadata verification failed: milestone $milestone_title" >&2; exit 1; }; fi
 for assignee in "${assignees[@]}"; do jq -e --arg value "$assignee" 'any(.assignees[]; .login == $value)' <<<"$observed" >/dev/null || { echo "metadata verification failed: assignee $assignee" >&2; exit 1; }; done
-for reviewer in "${reviewers[@]}"; do jq -e --arg value "$reviewer" 'any(.reviewRequests[]; .login == $value)' <<<"$observed" >/dev/null || { echo "metadata verification failed: reviewer $reviewer" >&2; exit 1; }; done
+for reviewer in "${reviewers[@]}"; do
+  if [[ "$reviewer" == */* ]]; then
+    jq -e --arg value "${reviewer#*/}" 'any(.requested_teams[]; .slug == $value)' <<<"$observed" >/dev/null
+  else
+    jq -e --arg value "$reviewer" 'any(.requested_reviewers[]; .login == $value)' <<<"$observed" >/dev/null
+  fi || { echo "metadata verification failed: reviewer $reviewer" >&2; exit 1; }
+done
 if [[ -n "$project_owner" ]]; then
-  jq -e --arg title "$(jq -er '.title' <<<"$project_json")" 'any(.projectItems[]; .title == $title)' <<<"$observed" >/dev/null || { echo "metadata verification failed: Project item" >&2; exit 1; }
   gh project item-list "$project_number" --owner "$project_owner" --limit 1000 --format json | jq -e --arg id "$item_id" --arg status "$project_status" 'any(.items[]; .id == $id and .status == $status)' >/dev/null || { echo "metadata verification failed: Project status $project_status" >&2; exit 1; }
 fi
 

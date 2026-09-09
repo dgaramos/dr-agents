@@ -22,11 +22,15 @@ When the target profile declares knowledge sources, load
 Apply its provenance and untrusted-content rules exactly as the portable
 contract defines.
 
-When the user authorizes GitHub publication, use the publisher documented in the
-target profile's dispatch contract. The personal `gh` session may dispatch it,
-but must never be switched, refreshed, logged out, or used to impersonate the
-reviewer. Wait for the publisher and verify the resulting review's author and
-event per the post-publication verification requirements in the review contract.
+When the user authorizes GitHub publication, load
+`references/reviewer-identity.md` and follow
+`core/pr-review/references/publication-routing-contract.md`. Discover the
+profile's publisher or `.github/workflows/publish-cody-review.yml`.
+Prefer and dispatch the active App publisher; verify `cody-dr[bot]` and
+`COMMENT`. Personal fallback requires evidence of unavailability, never just
+a missing profile or generic failure. Preserve the review manifest and inline
+findings on either route, announce the reason, and verify the actual actor.
+Do not switch, refresh, or log out the user's personal `gh` session.
 
 **Publication event: always `COMMENT`.** Cody DR never submits `REQUEST_CHANGES` and never submits `APPROVE` — regardless of finding count, profile authorization, or user request. Every publication, including a zero-findings pass, uses `COMMENT`. The publisher is configured for `COMMENT` only; any other event is a contract violation and must not be dispatched.
 

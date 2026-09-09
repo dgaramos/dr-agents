@@ -1,4 +1,4 @@
-# cody-dr: v0.1.28
+# cody-dr: v0.1.29
 name: Publish Cody DR review
 on:
   workflow_dispatch:
@@ -40,4 +40,4 @@ jobs:
           RESOLVE_THREAD_IDS_JSON: ${{ inputs.resolve_thread_ids_json }}
           EXPECTED_AUTHOR: cody-dr[bot]
           PUBLISHER_APP_SLUG: ${{ steps.cody-token.outputs.app-slug }}
-        run: bash .github/scripts/publish-review.sh
+        run: bash .github/scripts/agent-workflows/publish-review.sh

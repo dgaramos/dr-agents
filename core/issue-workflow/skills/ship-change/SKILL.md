@@ -18,11 +18,9 @@ When the loaded profile declares a PR template, use it as the PR body shape.
 Retain every heading and fill each section with change-specific information or
 `Not applicable`; do not replace the template with a short generic summary.
 
-After creating the PR, dispatch the loaded profile's `apply-pr-metadata`
-publisher workflow via `gh workflow run`, passing every profile-declared
-metadata field as a workflow input. This step is mandatory when the profile
-declares any metadata fields; skip only when the profile declares none. Wait
-for the run to complete and verify the bot identity and all declared fields.
-If the publisher is unavailable or fails, use a personal `gh` fallback only
-with explicit user authorization; verify all fields and name that account in
-the result. Never represent the fallback as the reviewer App.
+Select `create-pr` and `apply-pr-metadata` independently through
+`core/pr-review/references/publication-routing-contract.md`. Prefer and verify
+the executing adapter App; use a personal fallback only with evidence that
+the operation is unavailable. No profile is required to discover the publisher
+or perform the authorized action. Verify ordinary metadata separately from
+Projects and report each actual actor as required by the shipping contract.

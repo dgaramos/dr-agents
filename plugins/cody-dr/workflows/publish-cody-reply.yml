@@ -1,4 +1,4 @@
-# cody-dr: v0.1.28
+# cody-dr: v0.1.29
 name: Publish Cody DR thread reply
 on:
   workflow_dispatch:
@@ -33,4 +33,4 @@ jobs:
           THREAD_ACTION: reply
           EXPECTED_AUTHOR: cody-dr[bot]
           PUBLISHER_APP_SLUG: ${{ steps.cody-token.outputs.app-slug }}
-        run: bash .github/scripts/publish-cody-thread-action.sh
+        run: bash .github/scripts/agent-workflows/publish-cody-thread-action.sh

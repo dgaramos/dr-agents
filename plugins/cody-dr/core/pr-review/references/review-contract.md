@@ -86,10 +86,11 @@ new-findings section.
 
 Prepare a review body and inline comments only after verifying the current head.
 Publish, reply, resolve threads, approve, or request changes only when the user
-explicitly asks and the target profile provides an external publisher. Never look
+explicitly asks. Apply `publication-routing-contract.md` to select the App or
+authenticated personal fallback. Never look
 for credentials in the target repository.
 
-Without a publisher, return the same formatted content as `not published`.
+Without either usable route, return the formatted content as `not published`.
 
 For authorized agent publication, use `COMMENT` for every finding class. An
 agent review may identify a blocking or important risk, but it must not submit

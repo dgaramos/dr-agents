@@ -1,33 +1,21 @@
 ---
-description: Claudio DR drafts a structured GitHub issue and publishes it only with explicit authorization through a configured project publisher.
+description: Claudio DR drafts structured GitHub issues and publishes only when authorized, preferring its App with evidence-based fallback.
 ---
 
 # Claudio DR author-issue
 
 Reviewer identity: **Claudio DR**. Load
-`plugins/claudio-dr/references/reviewer-identity.md` before using a publisher.
+`references/reviewer-identity.md` before using a publisher.
 
-Discover the target profile first with
+Discover the target profile with
 `core/profile-discovery/references/profile-discovery-contract.md`.
+Load `core/issue-authoring/SKILL.md` and follow its referenced contract.
+Use `Claudio DR` in the draft summary.
 
-Load `core/issue-authoring/SKILL.md` and follow its referenced contract,
-including the `Direct authorship prohibition` and `Publication mechanics`
-sections. Use `Claudio DR` in the draft summary.
-
-When publication is explicitly authorized:
-
-1. Use only the target profile's `create-issue` mode — never a direct GitHub
-   API call authenticated as a human user.
-2. Pass `title`, `body`, `labels`, `assignees`, and `milestone` as workflow
-   inputs. Do not omit profile-declared fields.
-3. Conform the issue body to the profile's `.github/ISSUE_TEMPLATE/` structure;
-   match every section heading exactly.
-4. After the workflow completes, verify the created issue's `author.login` is
-   `claudio-dr[bot]`. If it is not, mark the issue as `not published` and report
-   the mismatch. Do not fall back to user authorship.
-
-`gh issue create` and any direct GitHub API call authenticated as the human
-user are forbidden for issue creation. There is no fallback to user authorship.
-
-If the `create-issue` mode is unavailable, return the complete draft as `not
-published`; do not infer that the Claudio DR GitHub App is inactive.
+Apply `core/pr-review/references/publication-routing-contract.md`.
+The documented `create-issue` workflow is
+`.github/workflows/publish-claudio-issue.yml` unless repository guidance supplies
+another publisher. Prefer the App and verify `claudio-dr[bot]` as the author.
+Personal fallback requires evidence of unavailability, never just a missing
+profile or a generic error. Announce and verify the actual personal actor.
+Preserve template structure and pass known metadata using structured inputs.

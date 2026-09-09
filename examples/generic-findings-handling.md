@@ -41,8 +41,9 @@ For an explicitly authorized reply or resolution, the handler first uses the
 configured reviewer App and verifies its actor and target thread. If that
 operation is unavailable before dispatch, an explicitly authorized authenticated
 personal account may publish instead; the result names that account as a
-personal fallback. A failed App dispatch or actor verification is reported as a
-failed App publication and never retried through the personal account.
+personal fallback. An ambiguous App dispatch or actor verification failure
+requires inspection before retrying. A proven token-generation failure before
+any mutation permits fallback; a generic error does not.
 
 ## Outcome summary (not published)
 

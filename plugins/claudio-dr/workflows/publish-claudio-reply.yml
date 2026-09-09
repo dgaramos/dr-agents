@@ -1,4 +1,4 @@
-# claudio-dr: v0.1.28
+# claudio-dr: v0.1.29
 name: Publish Claudio DR thread reply
 on:
   workflow_dispatch:
@@ -33,4 +33,4 @@ jobs:
           THREAD_ACTION: reply
           EXPECTED_AUTHOR: claudio-dr[bot]
           PUBLISHER_APP_SLUG: ${{ steps.claudio-token.outputs.app-slug }}
-        run: bash .github/scripts/publish-claudio-thread-action.sh
+        run: bash .github/scripts/agent-workflows/publish-claudio-thread-action.sh

@@ -7,6 +7,14 @@ description: Cody DR triages actionable pull request findings, applies valid in-
 
 Reviewer identity: **Cody DR** (Codex App reviewer).
 
+For every authorized commit, load `references/reviewer-identity.md` and use
+`bash <installed-plugin-root>/scripts/commit.sh <message-file>` after staging
+the intended files. Resolve the script from this plugin, not the target repo.
+The helper preserves human co-authors, replaces generic model attribution with
+this adapter's trailer, and verifies the resulting commit. A verification
+failure must be resolved before pushing. This is co-authorship, not a
+cryptographic signature; preserve the user's Git author and signing settings.
+
 Discover the target profile first with
 `core/profile-discovery/references/profile-discovery-contract.md`.
 
@@ -25,13 +33,12 @@ Never publish a pull-request review as part of finding triage. Publishing a
 review is the exclusive scope of the `review-pr` skill and requires separate
 explicit user authorization. Triage ends after fixes are committed and pushed.
 
-When authorized to publish, use the publisher documented in the target profile
-per the dispatch and reply contracts in `core/pr-review/references/profile-contract.md`.
-Verify that every reply and resolution is authored by Cody DR in the intended
-thread per the post-publication verification requirements in
-`core/findings-handling/references/findings-contract.md`. Follow its
-publisher-first policy: only an explicitly authorized authenticated personal
-account may be used when the Cody DR App operation is unavailable before
-dispatch, and the outcome must name that personal fallback. An App dispatch or
-author-verification failure is a failed publication, never a fallback. Never
-mark a finding resolved based only on a reply.
+When authorized to publish, load `references/reviewer-identity.md` and follow
+the publisher-first policy in
+`core/pr-review/references/publication-routing-contract.md`. Discover the App
+even without a profile. Require evidence before selecting personal fallback
+and verify the actual actor and intended thread. An author-verification
+failure is a failed publication, never a fallback. Inspect uncertain or partial
+dispatch results before retrying; proven token-generation failure before any
+mutation follows the routing contract. Never mark a finding resolved based
+only on a reply.

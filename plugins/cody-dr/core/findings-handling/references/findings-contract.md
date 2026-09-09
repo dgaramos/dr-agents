@@ -77,16 +77,11 @@ that the requested operation is available; after dispatching, verify the
 expected reviewer App actor, target thread, and operation. Never mark a
 finding resolved based only on a reply.
 
-An explicitly authorized authenticated personal account may publish the same
-reply or resolution only when the requested reviewer-App operation is
-unconfigured or unavailable **before dispatch**. The outcome must identify the
-authenticated personal actor and label the action as a personal fallback; it
-must never represent that actor as the reviewer App.
-
-Do not use a personal fallback after an App dispatch or post-publication
-verification fails. Report that failure distinctly as a failed App
-publication, including the expected and observed actor or target when known;
-do not reclassify it as an unavailable publisher.
+Use `core/pr-review/references/publication-routing-contract.md` for the App-first
+route and personal fallback when the App operation is unavailable. This also
+applies without a profile. Verify the authenticated actor and label any
+personal fallback. Inspect partial or uncertain publication before retrying;
+an author or target mismatch remains a failed publication.
 
 ## UI-significant diffs
 

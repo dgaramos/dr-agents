@@ -2,7 +2,7 @@
 
 This contract distinguishes a reviewer from the mechanisms that may publish on
 its behalf. It applies to review publication, thread replies, thread resolution,
-and issue creation.
+issue creation, pull request creation, and metadata updates.
 
 ## Identity
 
@@ -24,15 +24,19 @@ A profile declares publisher availability independently for each operation:
 - `reply`
 - `resolve-thread`
 - `create-issue`
+- `create-pr`
+- `apply-pr-metadata`
 
-An operation is available only when the profile documents its dispatch inputs
-and post-publication verification. If an operation is not available, return the
-prepared output as `not published`. Say that the **operation** is unavailable;
-do not infer that the reviewer App or integration is inactive.
+Discover operations from profile guidance and the adapter's documented
+publishers, including their dispatch inputs and verification. Use evidence
+of repository availability, not profile presence alone. For route selection, follow
+`publication-routing-contract.md` for the authenticated personal fallback,
+including when no profile exists. Say that the App **operation** is unavailable;
+do not infer that the reviewer identity is inactive.
 
 ## Verification
 
 Before publication, the publisher must authenticate as the configured
 publisher. After publication, verify the resulting actor, target, and operation
-against the profile's reviewer identity. A mismatched actor is a failed
+against the selected App identity or verified personal fallback account. A mismatched actor is a failed
 publication, never a fallback.

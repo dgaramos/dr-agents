@@ -6,6 +6,7 @@ on:
       base_branch: { description: Expected base branch, required: true, default: main, type: string }
       labels_json: { description: JSON array of labels, required: false, default: '[]', type: string }
       assignees_json: { description: JSON array of assignees, required: false, default: '[]', type: string }
+      reviewers_json: { description: JSON array of user logins or org/team slugs, required: false, default: '[]', type: string }
       milestone_number: { description: Optional milestone number, required: false, type: string }
       project_owner: { description: Optional Project owner, required: false, type: string }
       project_number: { description: Optional Project number, required: false, type: string }
@@ -25,13 +26,28 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-issues: write
           permission-pull-requests: write
+      - name: Create optional organization Projects token
+        id: project-token
+        if: ${{ inputs.project_owner != '' && github.event.repository.owner.type == 'Organization' && inputs.project_owner == github.repository_owner }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: ${{ vars.CODY_DR_CLIENT_ID }}
+          private-key: ${{ secrets.CODY_DR_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-issues: read
+          permission-pull-requests: read
+          permission-organization-projects: write
       - name: Apply and verify PR metadata as Cody DR
         env:
           GH_TOKEN: ${{ steps.cody-token.outputs.token }}
+          PROJECT_GH_TOKEN: ${{ steps.project-token.outputs.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
           BASE_BRANCH: ${{ inputs.base_branch }}
           LABELS_JSON: ${{ inputs.labels_json }}
           ASSIGNEES_JSON: ${{ inputs.assignees_json }}
+          REVIEWERS_JSON: ${{ inputs.reviewers_json }}
           MILESTONE_NUMBER: ${{ inputs.milestone_number }}
           PROJECT_OWNER: ${{ inputs.project_owner }}
           PROJECT_NUMBER: ${{ inputs.project_number }}

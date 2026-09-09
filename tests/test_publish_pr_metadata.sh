@@ -22,7 +22,7 @@ cd "$temp"
 TEST_LOG="$log" PATH="$temp/bin:$PATH" GITHUB_REPOSITORY=octo/example \
   PR_NUMBER=12 BASE_BRANCH=main LABELS_JSON='["enhancement","core"]' \
   ASSIGNEES_JSON='["octo"]' MILESTONE_NUMBER=3 PROJECT_OWNER=octo \
-  PROJECT_NUMBER=7 PROJECT_STATUS='In Progress' EXPECTED_AUTHOR='cody-dr[bot]' \
+  PROJECT_GH_TOKEN=test-project-token PROJECT_NUMBER=7 PROJECT_STATUS='In Progress' EXPECTED_AUTHOR='cody-dr[bot]' \
   PUBLISHER_APP_SLUG=cody-dr \
   bash "$root/.github/scripts/publish-pr-metadata.sh"
 
@@ -45,6 +45,17 @@ grep -q -- '--repo octo/example --pr 12 --base main --project-owner octo --proje
 
 # Verify that a failing Project V2 step does NOT cause the script to exit non-zero.
 rm -f "$log"
+TEST_LOG="$log" PATH="$temp/bin:$PATH" GITHUB_REPOSITORY=octo/example \
+  PR_NUMBER=12 BASE_BRANCH=main PROJECT_OWNER=octo PROJECT_NUMBER=7 \
+  PROJECT_STATUS=Todo EXPECTED_AUTHOR='cody-dr[bot]' PUBLISHER_APP_SLUG=cody-dr \
+  bash "$root/.github/scripts/publish-pr-metadata.sh" 2>"$temp/warnings"
+grep -q 'Project pending' "$temp/warnings"
+if grep -q -- '--project-owner' "$log"; then
+  echo "Project calls must be skipped without a Project token" >&2
+  exit 1
+fi
+
+rm -f "$log"
 cat >"$temp/core/issue-workflow/scripts/apply-pr-metadata.sh" <<'EOF'
 #!/usr/bin/env bash
 if printf '%s\n' "$*" | grep -q -- '--project-owner'; then
@@ -58,7 +69,7 @@ chmod +x "$temp/core/issue-workflow/scripts/apply-pr-metadata.sh"
 if ! TEST_LOG="$log" PATH="$temp/bin:$PATH" GITHUB_REPOSITORY=octo/example \
   PR_NUMBER=12 BASE_BRANCH=main LABELS_JSON='["enhancement"]' \
   ASSIGNEES_JSON='["octo"]' MILESTONE_NUMBER=3 PROJECT_OWNER=octo \
-  PROJECT_NUMBER=7 PROJECT_STATUS='In Progress' EXPECTED_AUTHOR='cody-dr[bot]' \
+  PROJECT_GH_TOKEN=test-project-token PROJECT_NUMBER=7 PROJECT_STATUS='In Progress' EXPECTED_AUTHOR='cody-dr[bot]' \
   PUBLISHER_APP_SLUG=cody-dr \
   bash "$root/.github/scripts/publish-pr-metadata.sh" 2>/dev/null; then
   echo "a failing Project V2 step must not abort the script" >&2
@@ -66,4 +77,14 @@ if ! TEST_LOG="$log" PATH="$temp/bin:$PATH" GITHUB_REPOSITORY=octo/example \
 fi
 grep -q -- '--repo octo/example --pr 12 --base main --label enhancement --assignee octo --milestone 3' "$log"
 
+cat >"$temp/core/issue-workflow/scripts/apply-pr-metadata.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+if TEST_LOG="$log" PATH="$temp/bin:$PATH" GITHUB_REPOSITORY=octo/example \
+  PR_NUMBER=12 BASE_BRANCH=main EXPECTED_AUTHOR='cody-dr[bot]' \
+  PUBLISHER_APP_SLUG=cody-dr bash "$root/.github/scripts/publish-pr-metadata.sh"; then
+  echo "core metadata failure must fail the workflow" >&2
+  exit 1
+fi
 echo "publish-pr-metadata tests passed"

@@ -15,12 +15,12 @@ before publishing.
    [contribution-guidance-contract](contribution-guidance-contract.md).
 2. Run the profile's quality command one final time on the current head. Stop
    if it fails.
-3. Push the branch and create the PR with the issue-derived title and a body
-   that retains every heading from the profile's PR template when one exists.
-4. Dispatch the profile's `apply-pr-metadata` publisher with every declared
-   metadata field. Wait for the result and verify the configured App identity,
-   base branch, labels, milestone, assignees, and Project state. A personal
-   fallback requires explicit authorization and must identify that actor.
+3. Follow `ship-change-contract.md` to push and dispatch the matching adapter's
+   `create-pr` App publisher with the issue-derived title and completed template.
+4. Follow the same contract for App metadata publication and separate Project
+   handling. User-owned Projects may use an authorized local `gh` account;
+   unavailable Project access is reported as pending without blocking delivery
+   unless the user explicitly requires it. Verify and name each publishing actor.
 5. Emit the shipping output block before the enclosing `execute-issue` phase
    reports completion. If a required field cannot be applied or verified, emit
    a handoff with the PR URL and failed field; do not claim complete shipping.

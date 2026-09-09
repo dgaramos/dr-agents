@@ -109,6 +109,13 @@ echo "$install_output" | grep -q "installed" \
   || { echo "FAIL: publish-cody-issue.yml not created by --workflows" >&2; exit 1; }
 
 # 3b: idempotency — second run reports unchanged
+for helper in publish-pr.sh publish-review.sh publish-pr-metadata.sh publish-cody-thread-action.sh publish-claudio-thread-action.sh apply-pr-metadata.sh; do
+  [[ -f "$fake_repo/.github/scripts/agent-workflows/$helper" ]] || { echo "missing installed helper: $helper" >&2; exit 1; }
+done
+for adapter in cody claudio; do
+  [[ -f "$fake_repo/.github/workflows/publish-${adapter}-pr.yml" ]] || exit 1
+done
+
 idempotent_output="$(cd "$fake_repo" && run_install "$fake_repo" --workflows)"
 echo "$idempotent_output" | grep -q "unchanged" \
   || { echo "FAIL: second agents install --workflows should report 'unchanged'" >&2

@@ -294,6 +294,8 @@ install_plugin_dir() {
 # Managed workflow names and their source plugin.
 # Each entry is "filename:plugin" where plugin is claudio-dr or cody-dr.
 readonly managed_workflows=(
+  "publish-claudio-pr.yml:claudio-dr"
+  "publish-cody-pr.yml:cody-dr"
   "publish-claudio-issue.yml:claudio-dr"
   "publish-claudio-pr-metadata.yml:claudio-dr"
   "publish-claudio-review.yml:claudio-dr"
@@ -421,7 +423,13 @@ mode_install_workflows() {
   done
 
   echo ""
-  echo "Workflow install complete."
+  local helper_dir="${repo_root}/.github/scripts/agent-workflows"
+  mkdir -p "$helper_dir"
+  for helper in "$REPO_DIR"/.github/scripts/*.sh; do
+    cp "$helper" "$helper_dir/$(basename "$helper")"
+  done
+  cp "$REPO_DIR/core/issue-workflow/scripts/apply-pr-metadata.sh" "$helper_dir/apply-pr-metadata.sh"
+  echo "Workflow install complete (including managed publisher helpers)."
 }
 
 # ---------------------------------------------------------------------------
