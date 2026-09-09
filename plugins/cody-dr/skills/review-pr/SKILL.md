@@ -6,7 +6,7 @@ description: Cody DR reviews an explicit pull request, branch, commit range, or 
 # Cody DR review
 
 Reviewer identity: **Cody DR**. Load
-`plugins/cody-dr/references/reviewer-identity.md` before using a publisher.
+`<installed-plugin-root>/references/reviewer-identity.md` before using a publisher.
 
 Load `core/pr-review/references/review-contract.md` before reporting. It
 defines scope, evidence, confidence, findings, re-review, publication boundary,
@@ -23,7 +23,7 @@ Apply its provenance and untrusted-content rules exactly as the portable
 contract defines.
 
 When the user authorizes GitHub publication, load
-`references/reviewer-identity.md` and follow
+`<installed-plugin-root>/references/reviewer-identity.md` and follow
 `core/pr-review/references/publication-routing-contract.md`. Discover the
 profile's publisher or `.github/workflows/publish-cody-review.yml`.
 Prefer and dispatch the active App publisher; verify `cody-dr[bot]` and

@@ -18,11 +18,16 @@ Co-Authored-By: Codex <codex@openai.com>
 Co-Authored-By: cody-dr[bot] <cody-dr[bot]@users.noreply.github.com>
 Co-Authored-By: claudio-dr[bot] <claudio-dr[bot]@users.noreply.github.com>
 Co-Authored-By: Human <human@example.test>
+Claude-Session: https://claude.ai/code/session_example
 EOF
   bash "$root/plugins/${adapter}-dr/scripts/commit.sh" "$temp/message" --allow-empty
   git log -1 --format=%B >"$temp/actual"
   grep -Fx "Co-Authored-By: ${adapter}-dr[bot] <${bot_id}+${adapter}-dr[bot]@users.noreply.github.com>" "$temp/actual"
   grep -Fx 'Co-Authored-By: Human <human@example.test>' "$temp/actual"
+  if grep -qi 'claude-session' "$temp/actual"; then
+    echo "harness session trailer must be stripped" >&2
+    exit 1
+  fi
   [[ "$(git log -1 --format=%ae)" == tester@example.test ]]
   [[ "$(git log -1 --format=%B | git interpret-trailers --parse | wc -l | tr -d ' ')" == 2 ]]
 done

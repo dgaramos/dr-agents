@@ -7,9 +7,10 @@ shift
 [[ -s "$message_file" ]] || { echo "commit message file must be non-empty" >&2; exit 2; }
 readonly trailer='Co-Authored-By: cody-dr[bot] <318732897+cody-dr[bot]@users.noreply.github.com>'
 readonly agent_pattern='^co-authored-by:[[:space:]]*(claude|codex|cody-dr|claudio-dr)([^[:alnum:]]|$)'
+readonly session_pattern='^claude-session:'
 prepared="$(mktemp)"
 trap 'rm -f "$prepared"' EXIT
-awk -v pattern="$agent_pattern" 'tolower($0) !~ pattern' "$message_file" >"$prepared"
+awk -v pattern="$agent_pattern" -v session="$session_pattern" 'tolower($0) !~ pattern && tolower($0) !~ session' "$message_file" >"$prepared"
 git interpret-trailers --in-place --trailer "$trailer" "$prepared"
 git commit "$@" --file "$prepared"
 trailers="$(git log -1 --format=%B | git interpret-trailers --parse)"

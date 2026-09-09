@@ -5,7 +5,7 @@ description: Claudio DR drafts structured GitHub issues and publishes only when 
 # Claudio DR author-issue
 
 Reviewer identity: **Claudio DR**. Load
-`references/reviewer-identity.md` before using a publisher.
+`${CLAUDE_PLUGIN_ROOT}/references/reviewer-identity.md` before using a publisher.
 
 Discover the target profile with
 `core/profile-discovery/references/profile-discovery-contract.md`.

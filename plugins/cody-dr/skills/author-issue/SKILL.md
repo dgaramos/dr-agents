@@ -6,7 +6,7 @@ description: Cody DR drafts structured GitHub issues and publishes only when aut
 # Cody DR author-issue
 
 Reviewer identity: **Cody DR**. Load
-`references/reviewer-identity.md` before using a publisher.
+`<installed-plugin-root>/references/reviewer-identity.md` before using a publisher.
 
 Discover the target profile with
 `core/profile-discovery/references/profile-discovery-contract.md`.

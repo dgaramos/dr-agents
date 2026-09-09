@@ -6,8 +6,8 @@ description: Claudio DR triages actionable pull request findings, applies valid 
 
 Reviewer identity: **Claudio DR** (Claude App reviewer).
 
-For every authorized commit, load `references/reviewer-identity.md` and use
-`bash <installed-plugin-root>/scripts/commit.sh <message-file>` after staging
+For every authorized commit, load `${CLAUDE_PLUGIN_ROOT}/references/reviewer-identity.md` and use
+`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/commit.sh <message-file>` after staging
 the intended files. Resolve the script from this plugin, not the target repo.
 The helper preserves human co-authors, replaces generic model attribution with
 this adapter's trailer, and verifies the resulting commit. A verification
@@ -32,7 +32,7 @@ Never publish a pull-request review as part of finding triage. Publishing a
 review is the exclusive scope of the `review-pr` skill and requires separate
 explicit user authorization. Triage ends after fixes are committed and pushed.
 
-When authorized to publish, load `references/reviewer-identity.md` and follow
+When authorized to publish, load `${CLAUDE_PLUGIN_ROOT}/references/reviewer-identity.md` and follow
 the publisher-first policy in
 `core/pr-review/references/publication-routing-contract.md`. Discover the App
 even without a profile. Require evidence before selecting personal fallback

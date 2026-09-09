@@ -7,7 +7,7 @@ description: Cody DR implements the changes required by an issue on the working 
 
 Reviewer identity: **Cody DR** (Codex App reviewer).
 
-For every authorized commit, load `references/reviewer-identity.md` and use
+For every authorized commit, load `<installed-plugin-root>/references/reviewer-identity.md` and use
 `bash <installed-plugin-root>/scripts/commit.sh <message-file>` after staging
 the intended files. Resolve the script from this plugin, not the target repo.
 The helper preserves human co-authors, replaces generic model attribution with

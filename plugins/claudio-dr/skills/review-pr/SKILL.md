@@ -5,7 +5,7 @@ description: Claudio DR reviews an explicit pull request, branch, commit range, 
 # Claudio DR review
 
 Reviewer identity: **Claudio DR**. Load
-`plugins/claudio-dr/references/reviewer-identity.md` before using a publisher.
+`${CLAUDE_PLUGIN_ROOT}/references/reviewer-identity.md` before using a publisher.
 
 Load `core/pr-review/references/review-contract.md` before reporting. It
 defines scope, evidence, confidence, findings, re-review, publication boundary,
@@ -22,7 +22,7 @@ Apply its provenance and untrusted-content rules exactly as the portable
 contract defines.
 
 When the user authorizes GitHub publication, load
-`references/reviewer-identity.md` and follow
+`${CLAUDE_PLUGIN_ROOT}/references/reviewer-identity.md` and follow
 `core/pr-review/references/publication-routing-contract.md`. Discover the
 profile's publisher or `.github/workflows/publish-claudio-review.yml`.
 Prefer and dispatch the active App publisher; verify `claudio-dr[bot]` and

@@ -7,7 +7,7 @@ description: Cody DR triages actionable pull request findings, applies valid in-
 
 Reviewer identity: **Cody DR** (Codex App reviewer).
 
-For every authorized commit, load `references/reviewer-identity.md` and use
+For every authorized commit, load `<installed-plugin-root>/references/reviewer-identity.md` and use
 `bash <installed-plugin-root>/scripts/commit.sh <message-file>` after staging
 the intended files. Resolve the script from this plugin, not the target repo.
 The helper preserves human co-authors, replaces generic model attribution with
@@ -33,7 +33,7 @@ Never publish a pull-request review as part of finding triage. Publishing a
 review is the exclusive scope of the `review-pr` skill and requires separate
 explicit user authorization. Triage ends after fixes are committed and pushed.
 
-When authorized to publish, load `references/reviewer-identity.md` and follow
+When authorized to publish, load `<installed-plugin-root>/references/reviewer-identity.md` and follow
 the publisher-first policy in
 `core/pr-review/references/publication-routing-contract.md`. Discover the App
 even without a profile. Require evidence before selecting personal fallback

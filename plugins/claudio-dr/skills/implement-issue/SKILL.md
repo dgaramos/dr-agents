@@ -6,8 +6,8 @@ description: Claudio DR implements the changes required by an issue on the worki
 
 Reviewer identity: **Claudio DR** (Claude App reviewer).
 
-For every authorized commit, load `references/reviewer-identity.md` and use
-`bash <installed-plugin-root>/scripts/commit.sh <message-file>` after staging
+For every authorized commit, load `${CLAUDE_PLUGIN_ROOT}/references/reviewer-identity.md` and use
+`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/commit.sh <message-file>` after staging
 the intended files. Resolve the script from this plugin, not the target repo.
 The helper preserves human co-authors, replaces generic model attribution with
 this adapter's trailer, and verifies the resulting commit. A verification
