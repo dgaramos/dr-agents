@@ -162,7 +162,7 @@ readonly required_paths=(
   "plugins/claudio-dr/agents/claudio-spec.md"
   "plugins/claudio-dr/references/reviewer-identity.md"
   "plugins/claudio-dr/hooks/hooks.json"
-  "plugins/claudio-dr/hooks/enforce-adapter-commit.sh"
+  "plugins/claudio-dr/hooks/enforce-adapter-attribution.sh"
   "docs/claudio-dr.md"
   "docs/contributing-guide.md"
   "core/.gitkeep"
@@ -375,7 +375,7 @@ tests/test_publish_claudio_thread_action.sh
 tests/test_publish_cody_thread_action.sh
 tests/test_publish_pr_metadata.sh
 bash tests/test_adapter_commits.sh
-bash tests/test_commit_hook.sh
+bash tests/test_attribution_hook.sh
 bash tests/test_publish_pr.sh
 bash tests/test_select_publisher.sh
 bash tests/test_install_workflows.sh
