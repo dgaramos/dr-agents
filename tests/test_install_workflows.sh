@@ -158,61 +158,60 @@ for wf in \
   done
 done
 
-# Issue workflows must not request organization-level project permissions.
+# Issue publishing must not request organization-level project permissions.
+grep -q "permission-organization-projects" "$repository_root/.github/workflows/reusable-publish-issue.yml" \
+  && { echo "FAIL: reusable-publish-issue.yml must not request permission-organization-projects" >&2; exit 1; } || true
+
+# ---------------------------------------------------------------------------
+# Criterion 5 — the issue publisher GETs and validates author before PATCH
+#
+# This is the #258 protection. Since dr-agents#260 T05 the templates are stubs,
+# so the assertion follows the logic into the central definition rather than
+# being dropped with the vendored copy it used to inspect.
+# ---------------------------------------------------------------------------
+
+reusable_issue="$repository_root/.github/workflows/reusable-publish-issue.yml"
+grep -q "method GET" "$reusable_issue" \
+  || { echo "FAIL: reusable-publish-issue.yml must perform a GET to validate issue author before PATCH" >&2; exit 1; }
+get_line="$(grep -n "method GET" "$reusable_issue" | head -1 | cut -d: -f1)"
+patch_line="$(grep -n "method PATCH" "$reusable_issue" | head -1 | cut -d: -f1)"
+[[ -n "$get_line" && -n "$patch_line" && "$get_line" -lt "$patch_line" ]] \
+  || { echo "FAIL: reusable-publish-issue.yml GET must appear before PATCH for pre-mutation author validation" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Criterion 6 — no publisher checks a repository out
+#
+# Criteria 6 and 7 used to require persist-credentials: false and a pinned
+# ref: refs/heads/main on every publisher checkout. The central definition
+# reaches the catalog through the composite action instead, so no publisher
+# checks anything out. Assert the stronger property that replaced them: a
+# credential that is never persisted cannot leak, and a ref that is never
+# checked out cannot be pinned to the wrong branch.
+# ---------------------------------------------------------------------------
+
 for wf in \
-  "$repository_root/plugins/claudio-dr/workflows/publish-claudio-issue.yml" \
-  "$repository_root/plugins/cody-dr/workflows/publish-cody-issue.yml"; do
+  "$repository_root"/plugins/claudio-dr/workflows/publish-claudio-*.yml \
+  "$repository_root"/plugins/cody-dr/workflows/publish-cody-*.yml \
+  "$repository_root"/.github/workflows/publish-*.yml \
+  "$repository_root"/.github/workflows/reusable-publish-*.yml; do
   name="$(basename "$wf")"
-  grep -q "permission-organization-projects" "$wf" \
-    && { echo "FAIL: $name must not request permission-organization-projects" >&2; exit 1; } || true
+  grep -qE "^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/checkout" "$wf" \
+    && { echo "FAIL: $name performs a checkout; publishers reach the catalog through the composite action" >&2; exit 1; } || true
 done
 
 # ---------------------------------------------------------------------------
-# Criterion 5 — issue workflows GET and validate author before PATCH
+# Criterion 7 — a stub declares its secret by name and never inherits
 # ---------------------------------------------------------------------------
 
 for wf in \
-  "$repository_root/plugins/claudio-dr/workflows/publish-claudio-issue.yml" \
-  "$repository_root/plugins/cody-dr/workflows/publish-cody-issue.yml"; do
+  "$repository_root"/plugins/claudio-dr/workflows/publish-claudio-*.yml \
+  "$repository_root"/plugins/cody-dr/workflows/publish-cody-*.yml \
+  "$repository_root"/.github/workflows/publish-*.yml; do
   name="$(basename "$wf")"
-  grep -q "method GET" "$wf" \
-    || { echo "FAIL: $name must perform a GET to validate issue author before PATCH" >&2; exit 1; }
-  # GET must appear before PATCH in file order
-  get_line="$(grep -n "method GET" "$wf" | head -1 | cut -d: -f1)"
-  patch_line="$(grep -n "method PATCH" "$wf" | head -1 | cut -d: -f1)"
-  [[ -n "$get_line" && -n "$patch_line" && "$get_line" -lt "$patch_line" ]] \
-    || { echo "FAIL: $name GET must appear before PATCH for pre-mutation author validation" >&2; exit 1; }
-done
-
-# ---------------------------------------------------------------------------
-# Criterion 6 — all checkout steps set persist-credentials: false
-# ---------------------------------------------------------------------------
-
-checkout_workflows=(
-  "$repository_root/plugins/claudio-dr/workflows/publish-claudio-pr-metadata.yml"
-  "$repository_root/plugins/claudio-dr/workflows/publish-claudio-review.yml"
-  "$repository_root/plugins/claudio-dr/workflows/publish-claudio-reply.yml"
-  "$repository_root/plugins/claudio-dr/workflows/publish-claudio-resolve.yml"
-  "$repository_root/plugins/cody-dr/workflows/publish-cody-pr-metadata.yml"
-  "$repository_root/plugins/cody-dr/workflows/publish-cody-review.yml"
-  "$repository_root/plugins/cody-dr/workflows/publish-cody-reply.yml"
-  "$repository_root/plugins/cody-dr/workflows/publish-cody-resolve.yml"
-)
-
-for wf in "${checkout_workflows[@]}"; do
-  name="$(basename "$wf")"
-  grep -qF "persist-credentials: false" "$wf" \
-    || { echo "FAIL: $name must set persist-credentials: false on all checkout steps" >&2; exit 1; }
-done
-
-# ---------------------------------------------------------------------------
-# Criterion 7 — all checkout steps pin to refs/heads/main
-# ---------------------------------------------------------------------------
-
-for wf in "${checkout_workflows[@]}"; do
-  name="$(basename "$wf")"
-  grep -qF "ref: refs/heads/main" "$wf" \
-    || { echo "FAIL: $name must pin checkout to ref: refs/heads/main" >&2; exit 1; }
+  grep -q "secrets: *inherit" "$wf" \
+    && { echo "FAIL: $name must declare app_private_key explicitly, never secrets: inherit" >&2; exit 1; } || true
+  grep -qF "app_private_key:" "$wf" \
+    || { echo "FAIL: $name must pass app_private_key to the central definition" >&2; exit 1; }
 done
 
 # ---------------------------------------------------------------------------

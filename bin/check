@@ -239,16 +239,54 @@ done
 
 # The hand-maintained .github/workflows/ copy in this catalog is a sixth variant
 # of the same publishers. It drifted from the template in both directions until
-# dr-agents#260, because only the templates were ever checked. Require the same
-# version marker here, and require the copy to differ from its template only by
-# the two legitimate divergences: the catalog stores its publication scripts at
-# .github/scripts/ rather than .github/scripts/agent-workflows/, and it declares
-# no METADATA_HELPER because it ships no local metadata helper.
+# dr-agents#260, because only the templates were ever checked.
+#
+# Since T05 both sides are thin dispatch stubs, so the two divergences this
+# guard used to normalize away are gone: a stub names no publication script and
+# declares no METADATA_HELPER. Exactly one divergence remains, and it is
+# deliberate — the catalog dogfoods the central definition at @main so that its
+# own publishers exercise a change before any consumer sees it, while the
+# template that consumers install pins the protected release tag.
+#
+# Normalize that one ref, and assert each side names the ref it is supposed to
+# name. A blanket normalization would let the two refs be swapped silently;
+# these assertions make the swap a failure, so this is strictly tighter than the
+# rule it replaces. Every other byte must still match exactly.
+readonly catalog_ref="main"
+readonly release_ref="workflows-v1"
+readonly reusable_prefix="dgaramos/dr-agents/.github/workflows/reusable-publish-"
+
 normalize_publisher() {
-  sed -e 's#\.github/scripts/agent-workflows/#.github/scripts/#g' \
-      -e '/^ *METADATA_HELPER:/d' \
+  sed -e "s#\(${reusable_prefix}[a-z-]*\.yml\)@[A-Za-z0-9._/-]*#\1@REF#" \
       -e '/^# \(claudio\|cody\)-dr: v/d' "$1"
 }
+
+# A stub must call the central definition, and it must call it at the ref that
+# side of the migration is pinned to.
+assert_reusable_ref() {
+  local file="$1" expected_ref="$2" role="$3" line
+  line="$(grep -n "^ *uses: ${reusable_prefix}" "$file" || true)"
+  if [[ -z "$line" ]]; then
+    echo "drift: $file does not call the central publisher definition" >&2
+    echo "  expected a 'uses: ${reusable_prefix}<mode>.yml@${expected_ref}' job" >&2
+    exit 1
+  fi
+  if [[ "$(grep -c "^ *uses: ${reusable_prefix}" "$file")" != "1" ]]; then
+    echo "drift: $file calls the central publisher definition more than once" >&2
+    exit 1
+  fi
+  if ! grep -q "^ *uses: ${reusable_prefix}[a-z-]*\.yml@${expected_ref}\$" "$file"; then
+    echo "drift: $file must pin the central definition at @${expected_ref} (${role})" >&2
+    echo "  found: ${line#*:}" >&2
+    exit 1
+  fi
+  # AC-03: the App key crosses the reusable-workflow boundary only by name.
+  if grep -q "secrets: *inherit" "$file"; then
+    echo "drift: $file uses 'secrets: inherit'; declare app_private_key explicitly" >&2
+    exit 1
+  fi
+}
+
 for wf in .github/workflows/publish-*.yml; do
   wf_name="$(basename "$wf")"
   case "$wf_name" in
@@ -265,8 +303,10 @@ for wf in .github/workflows/publish-*.yml; do
     echo "drift: $wf has no template at $template" >&2
     exit 1
   fi
+  assert_reusable_ref "$wf" "$catalog_ref" "catalog dogfooding copy"
+  assert_reusable_ref "$template" "$release_ref" "installed template"
   if ! diff -u <(normalize_publisher "$template") <(normalize_publisher "$wf") >/dev/null; then
-    echo "drift: $wf diverges from $template beyond the allowed script-path and METADATA_HELPER differences" >&2
+    echo "drift: $wf diverges from $template beyond the allowed reusable-workflow ref" >&2
     diff -u <(normalize_publisher "$template") <(normalize_publisher "$wf") >&2 || true
     exit 1
   fi

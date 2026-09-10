@@ -1,4 +1,7 @@
-# claudio-dr: v0.1.29
+# claudio-dr: v0.1.30
+# Thin dispatch stub for #260. Every publication behavior lives in the central
+# definition below; this file exists only because workflow_dispatch requires the
+# workflow to be present on this repository's default branch.
 name: Publish Claudio DR issue
 
 on:
@@ -31,88 +34,19 @@ on:
 
 permissions:
   contents: read
-
 jobs:
   publish:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create a Claudio DR installation token
-        id: claudio-token
-        # v3.2.0
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
-        with:
-          client-id: ${{ vars.CLAUDIO_DR_CLIENT_ID }}
-          private-key: ${{ secrets.CLAUDIO_DR_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-issues: write
-
-      - name: Create and verify issue
-        env:
-          GH_TOKEN: ${{ steps.claudio-token.outputs.token }}
-          TITLE: ${{ inputs.title }}
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
-          BODY: ${{ inputs.body }}
-          LABELS: ${{ inputs.labels }}
-          ASSIGNEES: ${{ inputs.assignees }}
-          MILESTONE_NUMBER: ${{ inputs.milestone_number }}
-          EXPECTED_AUTHOR: claudio-dr[bot]
-        run: |
-          set -euo pipefail
-          # Typed publication outcome. `not-published` is only ever emitted
-          # before any GitHub mutation has been attempted.
-          not_published() {
-            {
-              echo "### Claudio DR issue publisher"
-              echo
-              echo "- outcome: \`not-published\`"
-              echo "- reason: $1"
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "not-published: $1" >&2
-            exit 1
-          }
-          [[ -n "$TITLE" || -n "$ISSUE_NUMBER" ]] || not_published "title or issue_number is required"
-          [[ -n "$BODY" ]] || not_published "body is required"
-          [[ -z "$MILESTONE_NUMBER" || "$MILESTONE_NUMBER" =~ ^[1-9][0-9]*$ ]] || not_published "milestone_number must be a positive integer"
-          jq -n \
-            --arg title "$TITLE" \
-            --arg body "$BODY" \
-            --arg labels "$LABELS" \
-            --arg assignees "$ASSIGNEES" \
-            --arg milestone "$MILESTONE_NUMBER" \
-            '{title: $title, body: $body}
-             + (if $labels == "" then {} else {labels: ($labels | split(",") | map(select(length > 0)))} end)
-             + (if $assignees == "" then {} else {assignees: ($assignees | split(",") | map(select(length > 0)))} end)
-             + (if $milestone == "" then {} else {milestone: ($milestone | tonumber)} end)' > issue.json
-          if [[ -n "$ISSUE_NUMBER" ]]; then
-            [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]] || not_published "issue_number must be a positive integer, got: $ISSUE_NUMBER"
-            existing_author="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" --jq .user.login)"
-            [[ "$existing_author" == "$EXPECTED_AUTHOR" ]] || not_published "unexpected existing issue author: expected ${EXPECTED_AUTHOR}, got ${existing_author}"
-            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" --input issue.json > created-issue.json
-          else
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" --input issue.json > created-issue.json
-          fi
-          # The mutation has happened. Emit the resource identifier before any
-          # verification runs, so a red job is never read as "nothing was published".
-          issue_number="$(jq -r '.number' created-issue.json)"
-          issue_url="$(jq -r '.html_url' created-issue.json)"
-          {
-            echo "### Claudio DR issue publisher"
-            echo
-            echo "- resource: [#${issue_number}](${issue_url})"
-          } >> "$GITHUB_STEP_SUMMARY"
-          actual_author="$(jq -r '.user.login' created-issue.json)"
-          if [[ "$actual_author" != "$EXPECTED_AUTHOR" ]]; then
-            {
-              echo "- outcome: \`published-unverified\`"
-              echo "- expected author \`${EXPECTED_AUTHOR}\`, got \`${actual_author}\`"
-              echo
-              echo "Issue #${issue_number} **was published**. Do not republish it, and do not"
-              echo "publish it again under another identity. Inspect the resource above and"
-              echo "correct the attribution in place."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "published-unverified: issue #${issue_number} exists with author ${actual_author}; do not republish" >&2
-            exit 1
-          fi
-          echo "- outcome: \`published-ok\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Created and verified Claudio DR issue #${issue_number}: ${issue_url}"
+    # The ref is the release surface: the catalog dogfoods @main, while an
+    # installed stub pins the protected release tag. See docs/workflow-releases.md.
+    uses: dgaramos/dr-agents/.github/workflows/reusable-publish-issue.yml@workflows-v1
+    with:
+      agent: claudio
+      client_id: ${{ vars.CLAUDIO_DR_CLIENT_ID }}
+      title: ${{ inputs.title }}
+      issue_number: ${{ inputs.issue_number }}
+      body: ${{ inputs.body }}
+      labels: ${{ inputs.labels }}
+      assignees: ${{ inputs.assignees }}
+      milestone_number: ${{ inputs.milestone_number }}
+    secrets:
+      app_private_key: ${{ secrets.CLAUDIO_DR_PRIVATE_KEY }}

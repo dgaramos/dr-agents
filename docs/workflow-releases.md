@@ -30,12 +30,38 @@ rather than circular: the tag is moved to a commit whose workflows already
 reference that tag name, so after promotion both the workflow and the action
 resolve to the same commit.
 
+## Bootstrapping the tag
+
+The promotion procedure below moves an existing tag. The first release has to
+create one, and it cannot be skipped: every reusable workflow reaches its
+composite action at `@workflows-v1`, so until that ref resolves, no publisher
+runs at all — not even this repository's own. `workflows-v1` was created as an
+annotated tag at `1b5efd3`, the merge of #262, which is the first commit that
+contains both the reusable workflows and the composite action.
+
+## Publication scripts resolve inside the catalog
+
+A reusable publisher runs no `actions/checkout`. The caller's workspace is empty,
+so every path a publication step uses must be addressed inside the staged
+catalog, through the `path` and `root` outputs of the composite action. This is
+why `.github/scripts/` stays in this repository: it is the source the action
+exposes, not a leftover of the vendored publishers.
+
+The one script that reaches outside `.github/scripts/` is the metadata helper
+under `core/`. `reusable-publish-pr-metadata.yml` takes a `metadata_helper`
+input; when it is empty the catalog's own helper is used. A consumer's locally
+installed helper can no longer be named by a caller-relative path, because
+nothing checks the caller out.
+
 ## Promotion procedure
 
 1. Merge the change to `main`.
 2. Dogfood it: this repository's own stubs point at `@main`, not at the tag, so
    every publisher here exercises the new definition before any consumer sees
-   it.
+   it. `bin/check` enforces both halves of that split — the twelve stubs under
+   `.github/workflows/` must pin `@main` and the twelve templates under
+   `plugins/*/workflows/` must pin `@workflows-v1` — so the two refs cannot be
+   swapped by accident.
 3. Confirm the publishers of this repository ran green.
 4. Move the tag:
 

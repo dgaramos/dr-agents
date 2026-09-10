@@ -8,6 +8,13 @@ outputs:
   path:
     description: Absolute path to the catalog's .github/scripts directory.
     value: ${{ steps.stage.outputs.path }}
+  root:
+    description: >-
+      Absolute path to the staged catalog root. A publication script that reaches
+      outside .github/scripts — the metadata helper under core/ is the only one
+      today — must resolve against this, because the reusable workflow runs no
+      actions/checkout and the caller workspace is empty.
+    value: ${{ steps.stage.outputs.root }}
 runs:
   using: composite
   steps:
@@ -25,3 +32,4 @@ runs:
           exit 1
         }
         echo "path=${scripts}" >> "$GITHUB_OUTPUT"
+        echo "root=${root}" >> "$GITHUB_OUTPUT"
