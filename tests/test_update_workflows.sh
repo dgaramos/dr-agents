@@ -50,6 +50,14 @@ echo "$update_output" | grep -q "updated" \
 grep -qF "# claudio-dr: v${claudio_ver}" "$fake_repo/.github/workflows/publish-claudio-issue.yml" \
   || { echo "FAIL: drifted workflow not updated to current version" >&2; exit 1; }
 
+# bin/update delegates workflow installation to bin/install --workflows, so the
+# no-vendoring guarantee of dr-agents#260 T09 must hold through this path too.
+# Asserting it here rather than trusting the delegation keeps the guarantee
+# attached to the command an operator actually runs on a migrated repository.
+[[ ! -e "$fake_repo/.github/scripts" ]] \
+  || { echo "FAIL: --global --workflows must not vendor publication scripts into the consumer" >&2
+       ls -R "$fake_repo/.github/scripts" >&2; exit 1; }
+
 # ---------------------------------------------------------------------------
 # Criterion 4b — current workflow reports unchanged
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@
 #   --global              install claudio-dr to ~/.claude/ and cody-dr to global Codex config
 #   --repo [--profile N]  install to .claude/ in CWD; optionally apply named profile overrides
 #   --status              report what is currently installed globally and per-repo in CWD
-#   --workflows           install managed workflows to CWD .github/workflows/
+#   --workflows           install managed workflow stubs to CWD .github/workflows/
 #
 # On conflict between an existing file and the source, the script prints a
 # warning naming both versions and exits non-zero without overwriting.
@@ -48,9 +48,11 @@ Usage: bin/install [--force]
                     Only valid with --download.
   --status          Show what is currently installed globally and in the current
                     repo's .claude/ directory.
-  --workflows       Install managed workflows from the catalog into .github/workflows/
-                    of the current repo. Skips workflows already at the current version.
-                    Reports each action as 'installed' or 'unchanged'.
+  --workflows       Install managed workflow stubs from the catalog into
+                    .github/workflows/ of the current repo. Skips workflows already
+                    at the current version. Reports each action as 'installed' or
+                    'unchanged'. Publishers are thin dispatch stubs: no publication
+                    script is copied into the repository.
   --force           Skip conflict checking and overwrite all files from the
                     catalog source, printing a warning for each overwritten
                     file. Use 'agents update --global --force' to resolve
@@ -423,13 +425,25 @@ mode_install_workflows() {
   done
 
   echo ""
-  local helper_dir="${repo_root}/.github/scripts/agent-workflows"
-  mkdir -p "$helper_dir"
-  for helper in "$REPO_DIR"/.github/scripts/*.sh; do
-    cp "$helper" "$helper_dir/$(basename "$helper")"
-  done
-  cp "$REPO_DIR/core/issue-workflow/scripts/apply-pr-metadata.sh" "$helper_dir/apply-pr-metadata.sh"
-  echo "Workflow install complete (including managed publisher helpers)."
+
+  # Publication scripts are no longer vendored (dr-agents#260). A publisher is a
+  # thin workflow_dispatch stub that calls the central definition, which checks
+  # this catalog out at the ref the stub names and runs the scripts from there.
+  # Copying them here would reintroduce, on the next install, exactly the six
+  # drifting copies the migration removed.
+  #
+  # A repository migrated before this change still carries the old directory.
+  # Report it and leave it untouched: an installer that deletes files in a
+  # repository it does not own is not one anybody should trust.
+  local stale_helper_dir="${repo_root}/.github/scripts/agent-workflows"
+  if [[ -d "$stale_helper_dir" ]]; then
+    echo "  note: ${stale_helper_dir} holds vendored publisher helpers from before"
+    echo "        the reusable-workflow migration. Nothing reads them now; they are"
+    echo "        safe to delete. This installer will not remove them for you."
+    echo ""
+  fi
+
+  echo "Workflow install complete (dispatch stubs only; publication runs from the catalog)."
 }
 
 # ---------------------------------------------------------------------------
