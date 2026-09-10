@@ -1,4 +1,4 @@
-# claudio-dr: v0.1.30
+# claudio-dr: v0.1.31
 # Thin dispatch stub for #260. Every publication behavior lives in the central
 # definition below; this file exists only because workflow_dispatch requires the
 # workflow to be present on this repository's default branch.
@@ -20,6 +20,7 @@ jobs:
     # installed stub pins the protected release tag. See docs/workflow-releases.md.
     uses: dgaramos/dr-agents/.github/workflows/reusable-publish-review.yml@workflows-v1
     with:
+      catalog_ref: workflows-v1
       agent: claudio
       client_id: ${{ vars.CLAUDIO_DR_CLIENT_ID }}
       pr_number: ${{ inputs.pr_number }}

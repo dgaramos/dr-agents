@@ -182,21 +182,43 @@ patch_line="$(grep -n "method PATCH" "$reusable_issue" | head -1 | cut -d: -f1)"
 # Criterion 6 — no publisher checks a repository out
 #
 # Criteria 6 and 7 used to require persist-credentials: false and a pinned
-# ref: refs/heads/main on every publisher checkout. The central definition
-# reaches the catalog through the composite action instead, so no publisher
-# checks anything out. Assert the stronger property that replaced them: a
-# credential that is never persisted cannot leak, and a ref that is never
-# checked out cannot be pinned to the wrong branch.
+# ref: refs/heads/main on every publisher checkout.
+#
+# The composite action removed every checkout, but it could only ever be
+# addressed at a literal ref, because `uses:` does not accept expressions. That
+# pinned the action to a different commit than the workflow using it, which is
+# the skew that broke run 34505697770. The action is gone and a pinned checkout
+# at the caller-supplied catalog_ref replaced it.
+#
+# So the assertion is no longer "no checkout anywhere". It is the property the
+# ban stood for: a stub is thin and checks nothing out, and the one checkout in
+# the central definitions is pinned to a single SHA and never persists a
+# credential.
 # ---------------------------------------------------------------------------
 
+readonly checkout_pin="actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+
+# A stub stays thin: it checks nothing out.
 for wf in \
   "$repository_root"/plugins/claudio-dr/workflows/publish-claudio-*.yml \
   "$repository_root"/plugins/cody-dr/workflows/publish-cody-*.yml \
-  "$repository_root"/.github/workflows/publish-*.yml \
-  "$repository_root"/.github/workflows/reusable-publish-*.yml; do
+  "$repository_root"/.github/workflows/publish-*.yml; do
   name="$(basename "$wf")"
   grep -qE "^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/checkout" "$wf" \
-    && { echo "FAIL: $name performs a checkout; publishers reach the catalog through the composite action" >&2; exit 1; } || true
+    && { echo "FAIL: $name is a stub and must not perform a checkout" >&2; exit 1; } || true
+done
+
+# A central definition may check the catalog out, but only at the single pin,
+# and never persisting the credential.
+for wf in "$repository_root"/.github/workflows/reusable-publish-*.yml; do
+  name="$(basename "$wf")"
+  grep -qE "^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/checkout" "$wf" || continue
+  grep -qF "uses: ${checkout_pin}" "$wf" \
+    || { echo "FAIL: $name checks out without the single pin ${checkout_pin}" >&2; exit 1; }
+  grep -qE "^[[:space:]]*uses:[[:space:]]*actions/checkout@(v[0-9]|main)" "$wf" \
+    && { echo "FAIL: $name uses an unpinned actions/checkout" >&2; exit 1; } || true
+  grep -qF "persist-credentials: false" "$wf" \
+    || { echo "FAIL: $name checks out without persist-credentials: false" >&2; exit 1; }
 done
 
 # ---------------------------------------------------------------------------

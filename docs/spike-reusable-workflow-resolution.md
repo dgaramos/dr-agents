@@ -229,3 +229,17 @@ Two mechanisms remain, and the choice is a decision rather than a measurement:
 
 Both cost one edit per stub. That edit is currently free: T06, T07 and T08 have
 not run, so no consumer has been migrated yet. This is why the fix blocks them.
+
+## Decision
+
+**Option 2, the explicit `catalog_ref` input.** OIDC would buy a new permission
+in twelve stubs across four repositories, and make every publisher mint an
+identity token it uses for nothing else, all to resolve at run time something
+that is static and checkable before anything runs. `catalog_ref` gives the same
+same-commit guarantee with no new permission, and `bin/check` asserts that the
+ref a stub calls and the ref it passes are identical. The composite action was
+removed: `uses:` accepts no expressions, so any surviving action would
+reintroduce the fixed ref this fix exists to remove.
+
+The genuine proof of the mechanism remains a real dispatch on `main` after the
+fix merges. Nothing in this record claims that proof.

@@ -17,6 +17,15 @@ on:
         type: string
       pr_number: { description: Pull request number, required: true, type: string }
       thread_id: { description: GraphQL review-thread ID, required: true, type: string }
+      catalog_ref:
+        description: >-
+          The ref of this catalog that the caller resolved this workflow at. The
+          stub passes the very ref it names in `uses:`, and `bin/check` asserts
+          the two are identical. This is what keeps the workflow and the scripts
+          on one commit: a reusable workflow cannot derive its own ref, measured
+          in docs/spike-reusable-workflow-resolution.md.
+        required: true
+        type: string
     secrets:
       app_private_key:
         description: Private key of the publishing App.
@@ -36,12 +45,35 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-pull-requests: write
-      - name: Stage catalog scripts
-        id: scripts
-        # A local ./ path resolves against the caller workspace and fails here.
-        # The full owner/repo/path@ref form is required; the ref moves with the
-        # release tag. See docs/spike-reusable-workflow-resolution.md.
-        uses: dgaramos/dr-agents/.github/actions/catalog-scripts@workflows-v1
+      - name: Validate the catalog ref
+        id: catalog
+        env:
+          CATALOG_REF: ${{ inputs.catalog_ref }}
+        run: |
+          set -euo pipefail
+          # Fail loudly here rather than with a confusing "No such file" from
+          # the publisher step, which would be indistinguishable from a script
+          # bug. This preserves the guard the composite action used to provide.
+          if [[ -z "${CATALOG_REF}" ]]; then
+            echo "catalog_ref is empty; the stub must pass the ref it calls" >&2
+            exit 1
+          fi
+          if [[ ! "${CATALOG_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "catalog_ref is malformed: '${CATALOG_REF}'" >&2
+            exit 1
+          fi
+          # Surface the ref before anything runs, so a run's provenance is
+          # readable without inferring it from an exit code.
+          echo "catalog ref: ${CATALOG_REF}"
+          echo "- catalog ref: \`${CATALOG_REF}\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Check out the catalog at the ref this workflow was called at
+        # v4.4.0. The only pinned checkout in the publisher definitions.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: dgaramos/dr-agents
+          ref: ${{ inputs.catalog_ref }}
+          path: .dr-agents-catalog
+          persist-credentials: false
       - name: Resolve verified thread
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -50,4 +82,4 @@ jobs:
           THREAD_ACTION: resolve
           EXPECTED_AUTHOR: ${{ inputs.agent }}-dr[bot]
           PUBLISHER_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-        run: bash "${{ steps.scripts.outputs.path }}/publish-${{ inputs.agent }}-thread-action.sh"
+        run: bash "${{ github.workspace }}/.dr-agents-catalog/.github/scripts/publish-${{ inputs.agent }}-thread-action.sh"

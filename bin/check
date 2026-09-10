@@ -257,7 +257,12 @@ readonly release_ref="workflows-v1"
 readonly reusable_prefix="dgaramos/dr-agents/.github/workflows/reusable-publish-"
 
 normalize_publisher() {
+  # Two occurrences of the same ref are normalized: the one in `uses:` and the
+  # catalog_ref the stub passes. They must be identical to each other, which
+  # assert_reusable_ref checks before this diff runs, so normalizing both here
+  # cannot hide a mismatch.
   sed -e "s#\(${reusable_prefix}[a-z-]*\.yml\)@[A-Za-z0-9._/-]*#\1@REF#" \
+      -e 's#^\( *catalog_ref: \)[A-Za-z0-9._/-]*$#\1REF#' \
       -e '/^# \(claudio\|cody\)-dr: v/d' "$1"
 }
 
@@ -280,6 +285,26 @@ assert_reusable_ref() {
     echo "  found: ${line#*:}" >&2
     exit 1
   fi
+  # The stub must pass the very ref it calls. A reusable workflow cannot derive
+  # its own ref (measured in docs/spike-reusable-workflow-resolution.md), so
+  # this static agreement is what keeps the workflow and the catalog scripts on
+  # one commit. A stub calling @main while passing catalog_ref: workflows-v1 is
+  # precisely the skew that broke run 34505697770.
+  local mode passed_ref
+  mode="$(sed -n "s#^ *uses: ${reusable_prefix}\\([a-z-]*\\)\\.yml@.*#\\1#p" "$file")"
+  case " pr-metadata pr reply resolve review " in
+    *" $mode "*)
+      passed_ref="$(sed -n 's#^ *catalog_ref: *\(.*\)$#\1#p' "$file")"
+      if [[ -z "$passed_ref" ]]; then
+        echo "drift: $file calls ${mode} but passes no catalog_ref" >&2
+        exit 1
+      fi
+      if [[ "$passed_ref" != "$expected_ref" ]]; then
+        echo "drift: $file passes catalog_ref: ${passed_ref}; must equal the uses: ref @${expected_ref}" >&2
+        exit 1
+      fi
+      ;;
+  esac
   # AC-03: the App key crosses the reusable-workflow boundary only by name.
   if grep -q "secrets: *inherit" "$file"; then
     echo "drift: $file uses 'secrets: inherit'; declare app_private_key explicitly" >&2
@@ -470,6 +495,7 @@ bash tests/test_attribution_hook.sh
 bash tests/test_publish_pr.sh
 bash tests/test_select_publisher.sh
 bash tests/test_install_workflows.sh
+bash tests/test_reusable_ref_resolution.sh
 tests/test_discover_project_profile.sh
 tests/test_plugin_core_bundles.sh
 tests/test_helper_agents.sh
