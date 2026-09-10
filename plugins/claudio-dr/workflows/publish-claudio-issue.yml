@@ -59,9 +59,21 @@ jobs:
           EXPECTED_AUTHOR: claudio-dr[bot]
         run: |
           set -euo pipefail
-          [[ -n "$TITLE" || -n "$ISSUE_NUMBER" ]] || { echo "title or issue_number is required" >&2; exit 1; }
-          [[ -n "$BODY" ]] || { echo "body is required" >&2; exit 1; }
-          [[ -z "$MILESTONE_NUMBER" || "$MILESTONE_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "milestone_number must be a positive integer" >&2; exit 1; }
+          # Typed publication outcome. `not-published` is only ever emitted
+          # before any GitHub mutation has been attempted.
+          not_published() {
+            {
+              echo "### Claudio DR issue publisher"
+              echo
+              echo "- outcome: \`not-published\`"
+              echo "- reason: $1"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "not-published: $1" >&2
+            exit 1
+          }
+          [[ -n "$TITLE" || -n "$ISSUE_NUMBER" ]] || not_published "title or issue_number is required"
+          [[ -n "$BODY" ]] || not_published "body is required"
+          [[ -z "$MILESTONE_NUMBER" || "$MILESTONE_NUMBER" =~ ^[1-9][0-9]*$ ]] || not_published "milestone_number must be a positive integer"
           jq -n \
             --arg title "$TITLE" \
             --arg body "$BODY" \
@@ -73,10 +85,34 @@ jobs:
              + (if $assignees == "" then {} else {assignees: ($assignees | split(",") | map(select(length > 0)))} end)
              + (if $milestone == "" then {} else {milestone: ($milestone | tonumber)} end)' > issue.json
           if [[ -n "$ISSUE_NUMBER" ]]; then
-            existing_author="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" | jq -r '.user.login')"
-            [[ "$existing_author" == "$EXPECTED_AUTHOR" ]] || { echo "author validation failed: expected ${EXPECTED_AUTHOR}, got ${existing_author}" >&2; exit 1; }
+            [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]] || not_published "issue_number must be a positive integer, got: $ISSUE_NUMBER"
+            existing_author="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" --jq .user.login)"
+            [[ "$existing_author" == "$EXPECTED_AUTHOR" ]] || not_published "unexpected existing issue author: expected ${EXPECTED_AUTHOR}, got ${existing_author}"
             gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" --input issue.json > created-issue.json
           else
             gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" --input issue.json > created-issue.json
           fi
-          jq -r '"Created and verified Claudio DR issue #\(.number): \(.html_url)"' created-issue.json
+          # The mutation has happened. Emit the resource identifier before any
+          # verification runs, so a red job is never read as "nothing was published".
+          issue_number="$(jq -r '.number' created-issue.json)"
+          issue_url="$(jq -r '.html_url' created-issue.json)"
+          {
+            echo "### Claudio DR issue publisher"
+            echo
+            echo "- resource: [#${issue_number}](${issue_url})"
+          } >> "$GITHUB_STEP_SUMMARY"
+          actual_author="$(jq -r '.user.login' created-issue.json)"
+          if [[ "$actual_author" != "$EXPECTED_AUTHOR" ]]; then
+            {
+              echo "- outcome: \`published-unverified\`"
+              echo "- expected author \`${EXPECTED_AUTHOR}\`, got \`${actual_author}\`"
+              echo
+              echo "Issue #${issue_number} **was published**. Do not republish it, and do not"
+              echo "publish it again under another identity. Inspect the resource above and"
+              echo "correct the attribution in place."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "published-unverified: issue #${issue_number} exists with author ${actual_author}; do not republish" >&2
+            exit 1
+          fi
+          echo "- outcome: \`published-ok\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Created and verified Claudio DR issue #${issue_number}: ${issue_url}"

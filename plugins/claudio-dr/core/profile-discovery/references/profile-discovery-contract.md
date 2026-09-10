@@ -23,14 +23,19 @@ compatibility, but must not prevent this discovery procedure for new projects.
 
 ## Authorized spec source
 
-A profile may declare one exact external spec trio using this section:
+A profile may declare one or more exact external spec trios using this section:
 
 ```md
 ## Spec source
 
 - **Repository:** `owner/repository`
 - **Authorized path:** `specs/<project>/<feature>/`
+- **Authorized path:** `specs/<project>/<other-feature>/`
 ```
+
+Each `Authorized path` bullet authorizes exactly one trio. Listing several does
+not authorize any path between or above them, and it never authorizes a prefix:
+a requested trio must match one declared bullet exactly.
 
 `Repository` identifies the source when it is external; a profile may instead
 declare a local repository identity when the trio lives in the target project.
@@ -39,13 +44,13 @@ It may also be one environment placeholder, such as
 environment; an unset, empty, or malformed value makes the source inaccessible
 and the agent must stop. Placeholders do not support defaults, concatenation,
 or shell evaluation.
-`Authorized path` is a directory containing exactly `requirements.md`,
+Every `Authorized path` is a directory containing exactly `requirements.md`,
 `design.md`, and `tasks.md`.
 
 An agent may resolve an external spec only when all of these conditions hold:
 
 - exactly one profile was discovered and it declares both fields;
-- the requested trio path exactly matches `Authorized path`;
+- the requested trio path exactly matches one declared `Authorized path`;
 - the source is accessible through an authorized integration or local checkout.
 
 Missing, partial, ambiguous, or inaccessible declarations are not defaults. The
