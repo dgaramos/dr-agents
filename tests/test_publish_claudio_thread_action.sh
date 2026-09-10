@@ -13,7 +13,7 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$GH_CALL_LOG"
 case "$*" in
   *addPullRequestReviewThreadReply*)
-    printf '%s\n' '{"data":{"addPullRequestReviewThreadReply":{"comment":{"author":{"login":"claudio-dr[bot]"},"pullRequest":{"number":12,"repository":{"nameWithOwner":"octo/example"}}}}}}'
+    printf '%s\n' '{"data":{"addPullRequestReviewThreadReply":{"comment":{"author":{"login":"'"${REPLY_AUTHOR_LOGIN:-claudio-dr[bot]}"'"},"pullRequest":{"number":12,"repository":{"nameWithOwner":"octo/example"}}}}}}'
     ;;
   *resolveReviewThread*)
     printf '%s\n' true
@@ -50,5 +50,22 @@ if run_action THREAD_ACTION=reply THREAD_ID=thread-mismatch BODY='Must not post.
   exit 1
 fi
 ! tail -n 1 "$temporary_directory/gh.log" | grep -qF 'addPullRequestReviewThreadReply'
+
+run_action THREAD_ACTION=reply BODY='Unsuffixed login.' REPLY_AUTHOR_LOGIN='claudio-dr'
+tail -n 1 "$temporary_directory/gh.log" | grep -qF 'addPullRequestReviewThreadReply'
+
+run_action THREAD_ACTION=reply BODY='Suffixed login.' REPLY_AUTHOR_LOGIN='claudio-dr[bot]'
+tail -n 1 "$temporary_directory/gh.log" | grep -qF 'addPullRequestReviewThreadReply'
+
+if run_action THREAD_ACTION=reply BODY='Must not verify.' REPLY_AUTHOR_LOGIN='attacker'; then
+  echo "reply verification accepted an author that is not the expected app" >&2
+  exit 1
+fi
+
+diff "$repository_root/.github/scripts/publish-claudio-thread-action.sh" \
+  "$repository_root/.github/scripts/publish-cody-thread-action.sh" >/dev/null || {
+  echo "claudio and cody thread action scripts are no longer byte-identical" >&2
+  exit 1
+}
 
 echo "claudio thread action tests passed"
