@@ -1,0 +1,82 @@
+# Central publisher definition for #260. Consumers reach this through a thin
+# workflow_dispatch stub; the stub is irreducible because workflow_dispatch
+# requires the workflow to exist on the consumer's default branch.
+name: Apply PR metadata
+on:
+  workflow_call:
+    inputs:
+      agent:
+        description: Publishing agent, claudio or cody.
+        required: true
+        type: string
+      client_id:
+        description: >-
+          App client id. Passed as an input because repository variables do not
+          cross the reusable-workflow boundary by inheritance.
+        required: true
+        type: string
+      pr_number: { description: Pull request number, required: true, type: string }
+      base_branch: { description: Expected base branch, required: true, type: string }
+      labels_json: { description: JSON array of labels, required: false, default: '[]', type: string }
+      assignees_json: { description: JSON array of assignees, required: false, default: '[]', type: string }
+      reviewers_json: { description: JSON array of user logins or org/team slugs, required: false, default: '[]', type: string }
+      milestone_number: { description: Optional milestone number, required: false, default: '', type: string }
+      project_owner: { description: Optional Project owner, required: false, default: '', type: string }
+      project_number: { description: Optional Project number, required: false, default: '', type: string }
+      project_status: { description: Optional Project status, required: false, default: '', type: string }
+    secrets:
+      app_private_key:
+        description: Private key of the publishing App.
+        required: true
+permissions: { contents: read }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create an installation token
+        id: app-token
+        # v3.2.0
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: ${{ inputs.client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-issues: write
+          permission-pull-requests: write
+      - name: Create optional organization Projects token
+        id: project-token
+        if: ${{ inputs.project_owner != '' && github.event.repository.owner.type == 'Organization' && inputs.project_owner == github.repository_owner }}
+        continue-on-error: true
+        # v3.2.0
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: ${{ inputs.client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-issues: read
+          permission-pull-requests: read
+          permission-organization-projects: write
+      - name: Stage catalog scripts
+        id: scripts
+        # A local ./ path resolves against the caller workspace and fails here.
+        # The full owner/repo/path@ref form is required; the ref moves with the
+        # release tag. See docs/spike-reusable-workflow-resolution.md.
+        uses: dgaramos/dr-agents/.github/actions/catalog-scripts@workflows-v1
+      - name: Apply and verify PR metadata
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PROJECT_GH_TOKEN: ${{ steps.project-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          LABELS_JSON: ${{ inputs.labels_json }}
+          ASSIGNEES_JSON: ${{ inputs.assignees_json }}
+          REVIEWERS_JSON: ${{ inputs.reviewers_json }}
+          MILESTONE_NUMBER: ${{ inputs.milestone_number }}
+          PROJECT_OWNER: ${{ inputs.project_owner }}
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_STATUS: ${{ inputs.project_status }}
+          EXPECTED_AUTHOR: ${{ inputs.agent }}-dr[bot]
+          PUBLISHER_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: bash "${{ steps.scripts.outputs.path }}/publish-pr-metadata.sh"

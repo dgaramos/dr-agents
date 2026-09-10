@@ -1,0 +1,27 @@
+name: Stage catalog publication scripts
+description: >-
+  Expose the publication scripts that live in this catalog to a workflow that
+  was resolved remotely. The runner stages the whole action repository, so the
+  catalog root is three levels above the action directory. Measured in
+  docs/spike-reusable-workflow-resolution.md.
+outputs:
+  path:
+    description: Absolute path to the catalog's .github/scripts directory.
+    value: ${{ steps.stage.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: stage
+      shell: bash
+      run: |
+        set -euo pipefail
+        root="$(cd "${GITHUB_ACTION_PATH}/../../.." && pwd)"
+        scripts="${root}/.github/scripts"
+        # Fail loudly here rather than with a confusing "No such file" from the
+        # publisher step, which would be indistinguishable from a script bug.
+        [[ -d "$scripts" ]] || {
+          echo "catalog scripts not staged at ${scripts}" >&2
+          echo "GITHUB_ACTION_PATH=${GITHUB_ACTION_PATH}" >&2
+          exit 1
+        }
+        echo "path=${scripts}" >> "$GITHUB_OUTPUT"

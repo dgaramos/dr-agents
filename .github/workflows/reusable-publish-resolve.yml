@@ -1,0 +1,53 @@
+# Central publisher definition for #260. Consumers reach this through a thin
+# workflow_dispatch stub; the stub is irreducible because workflow_dispatch
+# requires the workflow to exist on the consumer's default branch.
+name: Resolve review thread
+on:
+  workflow_call:
+    inputs:
+      agent:
+        description: Publishing agent, claudio or cody.
+        required: true
+        type: string
+      client_id:
+        description: >-
+          App client id. Passed as an input because repository variables do not
+          cross the reusable-workflow boundary by inheritance.
+        required: true
+        type: string
+      pr_number: { description: Pull request number, required: true, type: string }
+      thread_id: { description: GraphQL review-thread ID, required: true, type: string }
+    secrets:
+      app_private_key:
+        description: Private key of the publishing App.
+        required: true
+permissions: { contents: read }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create an installation token
+        id: app-token
+        # v3.2.0
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: ${{ inputs.client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-pull-requests: write
+      - name: Stage catalog scripts
+        id: scripts
+        # A local ./ path resolves against the caller workspace and fails here.
+        # The full owner/repo/path@ref form is required; the ref moves with the
+        # release tag. See docs/spike-reusable-workflow-resolution.md.
+        uses: dgaramos/dr-agents/.github/actions/catalog-scripts@workflows-v1
+      - name: Resolve verified thread
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          THREAD_ID: ${{ inputs.thread_id }}
+          THREAD_ACTION: resolve
+          EXPECTED_AUTHOR: ${{ inputs.agent }}-dr[bot]
+          PUBLISHER_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: bash "${{ steps.scripts.outputs.path }}/publish-${{ inputs.agent }}-thread-action.sh"
