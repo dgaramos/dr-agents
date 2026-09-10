@@ -91,6 +91,26 @@ input; when it is empty the checked-out catalog's own helper is used. A
 consumer's locally installed helper can no longer be named by a caller-relative
 path, because nothing checks the caller out.
 
+## Which definition executed
+
+`workflows-v1` is a moving tag, so the ref a run reports is the same string
+before and after a promotion. The ref alone therefore cannot answer the one
+question a promotion raises: did this run execute the new definition?
+
+Every central definition answers it directly. Its first step — first, so the
+answer survives a failure in any later step — writes to the step summary:
+
+```text
+- publisher definition release: `2`
+```
+
+`bin/check` requires all six definitions to carry the same value. Bump it in
+the same change that alters what a publisher does, and never bump it in only
+some of the six: a marker that disagrees with itself is worse than none.
+
+This is the same norm the migration recorded for publication outcomes — a run
+states what happened rather than leaving it to be inferred from an exit code.
+
 ## Promotion procedure
 
 1. Merge the change to `main`.
@@ -111,6 +131,51 @@ path, because nothing checks the caller out.
 5. Verify a consumer executes the new behavior without receiving a commit.
 
 Never promote the tag while this repository's own publishers are red.
+
+### Verifying propagation honestly
+
+Step 5 is the claim the whole migration rests on, and four green runs after a
+promotion do not establish it. Green proves the publishers work; it does not
+prove the promotion is why they changed. They could have been executing the new
+definition already, for any number of reasons.
+
+Take the negative control before promoting. Between step 1 and step 4 the
+consumers still resolve the old definition, so dispatching a publisher in each
+one then costs a single run apiece and produces the missing half of the
+evidence:
+
+- **before promotion** — the consumer runs show the *previous* release marker;
+- **after promotion** — the same dispatch in the same repository shows the new
+  one, with no commit in that repository between the two runs.
+
+Absent-then-present is what makes the tag the cause. Record both sets of run
+URLs together; the pre-promotion set is not a formality to be dropped once the
+post-promotion set is green.
+
+## Not yet solved: an outdated stub is silent
+
+Nothing detects a consumer whose stub predates an input that a definition now
+requires. The stub simply does not pass it, and the input arrives empty. That
+is the failure mode this migration hit repeatedly, and it is the one still
+open.
+
+The version marker each stub carries (`# claudio-dr: vX.Y.Z`) is the raw
+material for detecting it, but at dispatch time nothing compares it against the
+definition being called. Closing that gap means a `stub_version` input on all
+six definitions and all twelve stub templates, compared against the catalog
+version staged at `catalog_ref`.
+
+It was deliberately left out of the change that made this marker possible.
+Altering the required input surface of every definition in the same promotion
+that the propagation proof depends on would confound that proof — the property
+under test would no longer be the only thing that changed. Two further reasons
+support waiting: `reusable-publish-issue.yml` performs no checkout and so has
+no staged catalog to compare against, and the mechanism is forward-only, since
+a stub old enough to be the problem cannot pass a new input.
+
+What exists today is operator-facing rather than dispatch-time: `bin/install`
+with no arguments reads each stub's marker and reports it as `drifted` when it
+trails the catalog.
 
 ## Rollback
 

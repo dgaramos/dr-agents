@@ -313,6 +313,50 @@ assert_reusable_ref() {
   fi
 }
 
+# AC-10, second half: a stub carries no publication logic.
+#
+# The ref assertions above prove a stub calls the right definition. They do not
+# prove it calls *only* that. A stub that grew a token step or an inline script
+# would keep passing them while quietly becoming a seventh variant of the very
+# copies dr-agents#260 exists to collapse — and the drift diff would not catch
+# it either, because it compares the two stubs to each other, so logic added to
+# both sides is invisible to it. These assertions are what make "thin" mean
+# something a check can enforce rather than a habit contributors maintain.
+assert_stub_is_thin() {
+  local file="$1" role="$2"
+  # Keyed on the line start, so a word inside an input description is not a
+  # false positive.
+  local forbidden=(
+    '^[[:space:]]*(-[[:space:]]+)?run:|inline script'
+    '^[[:space:]]*steps:|a step list'
+    '^[[:space:]]*runs-on:|a runner'
+  )
+  # Keyed anywhere on the line: these name an action, which only ever appears
+  # after `uses:`. The count assertion below would also reject them, but a
+  # message naming what was added is worth more than one naming an arity.
+  forbidden+=(
+    'create-github-app-token|an App token step'
+    'actions/checkout|a checkout'
+  )
+  local entry pattern label
+  for entry in "${forbidden[@]}"; do
+    pattern="${entry%%|*}"
+    label="${entry##*|}"
+    if grep -qE "${pattern}" "$file"; then
+      echo "drift: $file (${role}) is a dispatch stub but declares ${label}" >&2
+      echo "  publication logic belongs in .github/workflows/reusable-publish-*.yml" >&2
+      exit 1
+    fi
+  done
+  # The single call asserted above must be the only `uses:` in the file.
+  local uses_total
+  uses_total="$(grep -cE "^[[:space:]]*(-[[:space:]]+)?uses:" "$file" || true)"
+  if [[ "$uses_total" != "1" ]]; then
+    echo "drift: $file (${role}) has ${uses_total} 'uses:' entries; a stub has exactly one" >&2
+    exit 1
+  fi
+}
+
 for wf in .github/workflows/publish-*.yml; do
   wf_name="$(basename "$wf")"
   case "$wf_name" in
@@ -331,12 +375,55 @@ for wf in .github/workflows/publish-*.yml; do
   fi
   assert_reusable_ref "$wf" "$catalog_ref" "catalog dogfooding copy"
   assert_reusable_ref "$template" "$release_ref" "installed template"
+  assert_stub_is_thin "$wf" "catalog dogfooding copy"
+  assert_stub_is_thin "$template" "installed template"
   if ! diff -u <(normalize_publisher "$template") <(normalize_publisher "$wf") >/dev/null; then
     echo "drift: $wf diverges from $template beyond the allowed reusable-workflow ref" >&2
     diff -u <(normalize_publisher "$template") <(normalize_publisher "$wf") >&2 || true
     exit 1
   fi
 done
+
+# Every central definition announces which release of itself is executing.
+#
+# A run's step summary already names the catalog ref. That is the ref the
+# *caller* asked for, and while a moving tag is the release mechanism, the ref
+# alone cannot distinguish the definition before a promotion from the one after
+# it: both are called `workflows-v1`. This marker can, and it is what makes a
+# promotion verifiable from a consumer's run page without a commit in that
+# consumer (AC-01/AC-08).
+#
+# Bump it whenever a promoted change alters what a publisher does. All six
+# definitions must carry the same value; a partial bump would make the marker
+# lie, which is worse than not having one.
+readonly definition_release="2"
+readonly release_marker="publisher definition release: ${definition_release}"
+for wf in .github/workflows/reusable-publish-*.yml; do
+  if ! grep -qF "$release_marker" "$wf"; then
+    echo "drift: $wf does not announce '${release_marker}'" >&2
+    echo "  every central definition emits the same release marker to the step summary" >&2
+    exit 1
+  fi
+  if ! grep -qF 'GITHUB_STEP_SUMMARY' "$wf"; then
+    echo "drift: $wf never writes to the step summary" >&2
+    exit 1
+  fi
+done
+
+# The installer must not undo the migration.
+#
+# Until dr-agents#260 T09, `bin/install --workflows` copied every publication
+# script into the target repository. Once the publishers became stubs, running
+# it in a migrated repository would have restored the vendored copies the
+# migration had just deleted — silently, and reported as a successful install.
+# The stub assertions above cannot see that, because it happens in a repository
+# this check never runs in.
+if grep -nE '(cp|rsync|install)[^|]*\.github/scripts' bin/install >/dev/null; then
+  echo "bin/install copies publication scripts into the target repository" >&2
+  echo "  publishers are dispatch stubs; the scripts run from this catalog" >&2
+  grep -nE '(cp|rsync|install)[^|]*\.github/scripts' bin/install >&2
+  exit 1
+fi
 
 # The public README is the catalog surface. Every advertised capability must
 # exist in both adapters, and adapters may not ship an undocumented skill.

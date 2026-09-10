@@ -23,7 +23,7 @@ Usage: bin/update --global [--force]
        bin/update --download
 
   --global             Pull the catalog and update the global install (~/.claude/ and Codex config).
-  --global --workflows Pull the catalog and update managed workflows in .github/workflows/ of the
+  --global --workflows Pull the catalog and update managed workflow stubs in .github/workflows/ of the
                        current repo. Workflows whose embedded version does not match the catalog
                        version are updated and reported as 'updated'. Current workflows are reported
                        as 'unchanged'. Use --force to overwrite all regardless of version.

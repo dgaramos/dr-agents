@@ -1,10 +1,18 @@
 # App publication and commit attribution
 
-Version 0.1.29 adds `create-pr` to both adapters and installs the publisher
-dependencies under `.github/scripts/agent-workflows/`. Update the plugin and
-run `agents install --workflows` in each consumer repository. Commit the
-generated workflows and helper directory to that repository's default branch
-before dispatching. Do not copy just the workflow YAML files.
+Both adapters provide `create-pr`. A publisher installed in a consumer
+repository is a thin `workflow_dispatch` stub: it carries the input names and
+nothing else, and calls the central definition in this catalog, which checks
+this repository out at the ref the stub names and runs the publication scripts
+from there. No publication script is copied into a consumer.
+
+Update the plugin, run `agents install --workflows` in each consumer
+repository, and commit the stubs to that repository's default branch before
+dispatching. A repository migrated from the earlier vendored layout may still
+carry `.github/scripts/agent-workflows/`; nothing reads it, the installer
+reports it and will not delete it, and it is safe to remove by hand. See
+[workflow-releases.md](workflow-releases.md) for the release scheme that
+governs which definition a stub executes.
 
 App-first routing applies even without a profile. The adapter checks its
 documented workflow paths; `select-publisher.sh` selects an active workflow

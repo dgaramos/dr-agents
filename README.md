@@ -122,7 +122,7 @@ Once installed, use `agents` for all operations from any directory:
 
 ```bash
 agents install --global              # install claudio-dr, cody-dr, and agents CLI globally
-agents install --workflows           # install workflow skills only (no adapter plugins)
+agents install --workflows           # install publisher dispatch stubs only (no adapter plugins)
 agents install --repo                # install claudio-dr into the current repo
 agents install --repo --profile <name>  # with a project-specific profile
 agents download                      # download from GitHub releases and install globally (no git required)

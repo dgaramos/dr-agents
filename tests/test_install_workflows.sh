@@ -108,10 +108,18 @@ echo "$install_output" | grep -q "installed" \
 [[ -f "$fake_repo/.github/workflows/publish-cody-issue.yml" ]] \
   || { echo "FAIL: publish-cody-issue.yml not created by --workflows" >&2; exit 1; }
 
-# 3b: idempotency — second run reports unchanged
-for helper in publish-pr.sh publish-review.sh publish-pr-metadata.sh publish-cody-thread-action.sh publish-claudio-thread-action.sh apply-pr-metadata.sh; do
-  [[ -f "$fake_repo/.github/scripts/agent-workflows/$helper" ]] || { echo "missing installed helper: $helper" >&2; exit 1; }
-done
+# 3b: --workflows installs stubs only, and vendors no publication script.
+#
+# Until dr-agents#260 T09 this loop asserted the opposite: that six helper
+# scripts had been copied into .github/scripts/agent-workflows/. The publishers
+# became thin stubs that run nothing locally, so a copied script is dead weight
+# that an installer would silently reintroduce into a migrated repository.
+[[ ! -e "$fake_repo/.github/scripts/agent-workflows" ]] \
+  || { echo "FAIL: --workflows must not vendor publication scripts into the consumer" >&2
+       ls -R "$fake_repo/.github/scripts" >&2; exit 1; }
+[[ ! -e "$fake_repo/.github/scripts" ]] \
+  || { echo "FAIL: --workflows must not create .github/scripts/ in the consumer" >&2; exit 1; }
+
 for adapter in cody claudio; do
   [[ -f "$fake_repo/.github/workflows/publish-${adapter}-pr.yml" ]] || exit 1
 done
@@ -129,6 +137,37 @@ echo "$force_output" | grep -q "installed" \
        echo "Output was: $force_output" >&2; exit 1; }
 grep -qF "# claudio-dr: v${claudio_ver}" "$fake_repo/.github/workflows/publish-claudio-issue.yml" \
   || { echo "FAIL: --workflows --force did not restore current version" >&2; exit 1; }
+
+# 3d: the version marker keeps its meaning once the stub travels alone.
+#
+# The no-argument drift report is the operator-facing detection of an outdated
+# stub, and it is the reason dr-agents#260 T09 defers a runtime stub_version
+# input. It must still read the marker after the helper copy is gone.
+present_output="$(cd "$fake_repo" && run_install "$fake_repo")"
+echo "$present_output" | grep "publish-claudio-issue" | grep -q "present" \
+  || { echo "FAIL: no-arg check should report a freshly installed stub as 'present'" >&2
+       echo "Output was: $present_output" >&2; exit 1; }
+echo "# claudio-dr: v0.0.1" > "$fake_repo/.github/workflows/publish-claudio-issue.yml"
+drift_output="$(cd "$fake_repo" && run_install "$fake_repo")"
+echo "$drift_output" | grep "publish-claudio-issue" | grep -q "drifted" \
+  || { echo "FAIL: no-arg check should still report an outdated stub marker as 'drifted'" >&2
+       echo "Output was: $drift_output" >&2; exit 1; }
+
+rm -rf "$fake_repo/.github"
+
+# 3e: a repository still carrying the pre-migration helper directory is warned,
+# never modified. An installer that deletes files in someone else's repository
+# is not a trustworthy installer, so the stale copy is reported and left alone.
+mkdir -p "$fake_repo/.github/scripts/agent-workflows"
+echo "# left over from the vendored era" > "$fake_repo/.github/scripts/agent-workflows/publish-pr.sh"
+stale_output="$(cd "$fake_repo" && run_install "$fake_repo" --workflows)"
+echo "$stale_output" | grep -q "agent-workflows" \
+  || { echo "FAIL: --workflows should report a stale vendored helper directory" >&2
+       echo "Output was: $stale_output" >&2; exit 1; }
+[[ -f "$fake_repo/.github/scripts/agent-workflows/publish-pr.sh" ]] \
+  || { echo "FAIL: --workflows must not delete files it no longer manages" >&2; exit 1; }
+grep -qF "# left over from the vendored era" "$fake_repo/.github/scripts/agent-workflows/publish-pr.sh" \
+  || { echo "FAIL: --workflows must not rewrite a stale vendored helper" >&2; exit 1; }
 
 rm -rf "$fake_repo/.github"
 
