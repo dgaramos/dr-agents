@@ -1,0 +1,14 @@
+# Throwaway spike for dr-agents#260 T01. Removed before the PR1 handoff.
+name: T01 spike caller
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  call-remote:
+    name: Call reusable workflow by full owner/repo path
+    uses: dgaramos/dr-agents/.github/workflows/spike-reusable.yml@260-feat/reusable-workflow-publishers
+    with:
+      call_form: remote workflow_call

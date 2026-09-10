@@ -1,0 +1,59 @@
+name: T01 spike probe
+description: >-
+  Throwaway diagnostic for dr-agents#260 T01. Measures whether a composite
+  action hosted in dr-agents can read dr-agents files when the reusable
+  workflow that uses it is resolved remotely. Removed before the PR1 handoff.
+
+inputs:
+  call_form:
+    description: Which uses form resolved this action (local or remote).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Probe catalog file access
+      shell: bash
+      env:
+        CALL_FORM: ${{ inputs.call_form }}
+        PROBE_FILE: core/issue-workflow/references/plan-issue-contract.md
+      run: |
+        set -uo pipefail
+        action_root="$(cd "${GITHUB_ACTION_PATH}/../../.." && pwd)"
+        {
+          echo "## T01 probe — call form: ${CALL_FORM}"
+          echo
+          echo '```'
+          echo "GITHUB_ACTION_PATH = ${GITHUB_ACTION_PATH}"
+          echo "GITHUB_WORKSPACE   = ${GITHUB_WORKSPACE}"
+          echo "GITHUB_REPOSITORY  = ${GITHUB_REPOSITORY}"
+          echo "resolved repo root = ${action_root}"
+          echo
+          echo "-- M1: is the dr-agents-only probe file readable from the action root?"
+          if [[ -f "${action_root}/${PROBE_FILE}" ]]; then
+            echo "M1 = TRUE"
+            echo "sha256 = $(sha256sum "${action_root}/${PROBE_FILE}" | cut -d' ' -f1)"
+          else
+            echo "M1 = FALSE (${action_root}/${PROBE_FILE} not present)"
+          fi
+          echo
+          echo "-- M1b: is the same file present in the caller workspace?"
+          if [[ -f "${GITHUB_WORKSPACE}/${PROBE_FILE}" ]]; then
+            echo "M1b = TRUE (caller workspace also has it; not a discriminating run)"
+          else
+            echo "M1b = FALSE (file came from the action checkout only)"
+          fi
+          echo
+          echo "-- M2: which ref did the action checkout resolve to?"
+          echo "action root basename = $(basename "${action_root}")"
+          echo "sibling entries at action root:"
+          ls -1 "${action_root}" 2>&1 | head -20
+          echo
+          echo "-- M3: marker file unique to this spike branch"
+          if [[ -f "${action_root}/.github/actions/spike-probe/REF-MARKER" ]]; then
+            echo "M3 marker = $(cat "${action_root}/.github/actions/spike-probe/REF-MARKER")"
+          else
+            echo "M3 marker = ABSENT"
+          fi
+          echo '```'
+        } >> "${GITHUB_STEP_SUMMARY}"
