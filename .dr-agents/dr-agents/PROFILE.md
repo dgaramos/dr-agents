@@ -7,10 +7,11 @@ the issue, and `profiles/dr-agents.md`; run `bin/check` before handoff.
 
 - **Repository:** `${SPECS_REPOSITORY}`
 - **Authorized path:** `specs/dr-agents/complete-sdd-pipeline/`
+- **Authorized path:** `specs/dr-agents/reusable-workflow-publishers/`
 
 Set `SPECS_REPOSITORY` to the private `owner/repository` identifier in the
 environment that invokes an agent. This declaration authorizes resolution of
-that exact trio only; it does not authorize writing to the resolved repository.
+those exact trios only; it does not authorize writing to the resolved repository.
 
 ## Delivery metadata
 

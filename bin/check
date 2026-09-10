@@ -237,6 +237,41 @@ for wf in plugins/cody-dr/workflows/publish-cody-*.yml; do
   fi
 done
 
+# The hand-maintained .github/workflows/ copy in this catalog is a sixth variant
+# of the same publishers. It drifted from the template in both directions until
+# dr-agents#260, because only the templates were ever checked. Require the same
+# version marker here, and require the copy to differ from its template only by
+# the two legitimate divergences: the catalog stores its publication scripts at
+# .github/scripts/ rather than .github/scripts/agent-workflows/, and it declares
+# no METADATA_HELPER because it ships no local metadata helper.
+normalize_publisher() {
+  sed -e 's#\.github/scripts/agent-workflows/#.github/scripts/#g' \
+      -e '/^ *METADATA_HELPER:/d' \
+      -e '/^# \(claudio\|cody\)-dr: v/d' "$1"
+}
+for wf in .github/workflows/publish-*.yml; do
+  wf_name="$(basename "$wf")"
+  case "$wf_name" in
+    publish-claudio-*) plugin=claudio-dr; agent=claudio-dr; ver="$claudio_wf_ver" ;;
+    publish-cody-*)    plugin=cody-dr;    agent=cody-dr;    ver="$cody_wf_ver" ;;
+    *) continue ;;
+  esac
+  if ! grep -qF "# ${agent}: v${ver}" "$wf"; then
+    echo "drift: $wf is missing version comment '# ${agent}: v${ver}'" >&2
+    exit 1
+  fi
+  template="plugins/${plugin}/workflows/${wf_name}"
+  if [[ ! -f "$template" ]]; then
+    echo "drift: $wf has no template at $template" >&2
+    exit 1
+  fi
+  if ! diff -u <(normalize_publisher "$template") <(normalize_publisher "$wf") >/dev/null; then
+    echo "drift: $wf diverges from $template beyond the allowed script-path and METADATA_HELPER differences" >&2
+    diff -u <(normalize_publisher "$template") <(normalize_publisher "$wf") >&2 || true
+    exit 1
+  fi
+done
+
 # The public README is the catalog surface. Every advertised capability must
 # exist in both adapters, and adapters may not ship an undocumented skill.
 readonly public_skill_names=(
