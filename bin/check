@@ -202,6 +202,22 @@ for path in "${required_paths[@]}"; do
   fi
 done
 
+# A dangling symlink makes this repository unusable as a GitHub Actions action
+# repository: the runner stages the whole repo before resolving the action and
+# aborts on the first unresolvable link. Measured in dr-agents#260 T01.
+dangling=0
+while IFS= read -r link; do
+  [[ -n "$link" ]] || continue
+  if [[ ! -e "$link" ]]; then
+    echo "dangling symlink: $link -> $(readlink "$link")" >&2
+    dangling=1
+  fi
+done < <(find . -path ./.git -prune -o -type l -print)
+if [[ "$dangling" == "1" ]]; then
+  echo "dangling symlinks break GitHub Actions action staging" >&2
+  exit 1
+fi
+
 # Each managed workflow template must carry a version comment so the installer
 # can detect drift without a full file diff.
 claudio_wf_ver="$(grep '"version"' plugins/claudio-dr/.claude-plugin/plugin.json | head -1 \
