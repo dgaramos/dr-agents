@@ -3,6 +3,9 @@ name: T01 spike caller
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 260-feat/reusable-workflow-publishers
 
 permissions: {}
 
