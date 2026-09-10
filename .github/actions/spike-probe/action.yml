@@ -56,4 +56,4 @@ runs:
             echo "M3 marker = ABSENT"
           fi
           echo '```'
-        } >> "${GITHUB_STEP_SUMMARY}"
+        } 2>&1 | tee -a "${GITHUB_STEP_SUMMARY}"
