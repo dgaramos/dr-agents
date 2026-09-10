@@ -40,6 +40,16 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Announce the publisher definition release
+        # First step in every publisher, so a run's provenance is readable even
+        # when a later step fails. The catalog ref names what the caller asked
+        # for; this names what actually executed, which is what distinguishes
+        # the definition before a tag promotion from the one after it. Kept in
+        # agreement across all six definitions by bin/check (dr-agents#260).
+        run: |
+          set -euo pipefail
+          echo "publisher definition release: 2"
+          echo "- publisher definition release: \`2\`" >> "$GITHUB_STEP_SUMMARY"
       - name: Create an installation token
         id: app-token
         # v3.2.0

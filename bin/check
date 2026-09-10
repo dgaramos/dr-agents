@@ -384,6 +384,32 @@ for wf in .github/workflows/publish-*.yml; do
   fi
 done
 
+# Every central definition announces which release of itself is executing.
+#
+# A run's step summary already names the catalog ref. That is the ref the
+# *caller* asked for, and while a moving tag is the release mechanism, the ref
+# alone cannot distinguish the definition before a promotion from the one after
+# it: both are called `workflows-v1`. This marker can, and it is what makes a
+# promotion verifiable from a consumer's run page without a commit in that
+# consumer (AC-01/AC-08).
+#
+# Bump it whenever a promoted change alters what a publisher does. All six
+# definitions must carry the same value; a partial bump would make the marker
+# lie, which is worse than not having one.
+readonly definition_release="2"
+readonly release_marker="publisher definition release: ${definition_release}"
+for wf in .github/workflows/reusable-publish-*.yml; do
+  if ! grep -qF "$release_marker" "$wf"; then
+    echo "drift: $wf does not announce '${release_marker}'" >&2
+    echo "  every central definition emits the same release marker to the step summary" >&2
+    exit 1
+  fi
+  if ! grep -qF 'GITHUB_STEP_SUMMARY' "$wf"; then
+    echo "drift: $wf never writes to the step summary" >&2
+    exit 1
+  fi
+done
+
 # The installer must not undo the migration.
 #
 # Until dr-agents#260 T09, `bin/install --workflows` copied every publication
