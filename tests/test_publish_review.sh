@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Behavioral coverage for .github/scripts/publish-review.sh.
 #
-# Ported from craftcontrol's apps/server/controlplane/tests/test_deployment.py
-# as part of dr-agents#260 (T08). Those tests executed the vendored copy of this
+# Ported from a consumer project's deployment test suite as part of
+# dr-agents#260 (T08). Those tests executed the vendored copy of this
 # script and were, until this file existed, the only behavioral coverage of it
 # anywhere. The script now lives here and is reached through the central
 # reusable definition, so the coverage belongs here too: a consumer must not be
