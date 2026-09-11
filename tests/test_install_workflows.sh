@@ -392,4 +392,26 @@ cmp -s "$repository_root/plugins/claudio-dr/workflows/publish-claudio-resolve.ym
 
 rm -rf "$fake_repo/.github"
 
+# Every publisher template must reach a consumer. The installer used to carry a
+# hand-written list of stub names, so dr-agents#269 added a seventh publisher
+# whose templates existed in both plugins and would never have been installed
+# anywhere -- nothing knew they existed and nothing complained. This asserts the
+# set, derived from the catalog, rather than restating names a reader must
+# remember to extend.
+(cd "$fake_repo" && run_install "$fake_repo" --workflows) >/dev/null
+for template in "$repository_root"/plugins/*/workflows/publish-*.yml; do
+  [[ -e "$template" ]] || continue
+  name="$(basename "$template")"
+  [[ -f "$fake_repo/.github/workflows/$name" ]] \
+    || { echo "FAIL: $name is a catalog template but was not installed" >&2; exit 1; }
+  cmp -s "$template" "$fake_repo/.github/workflows/$name" \
+    || { echo "FAIL: installed $name differs from its catalog template" >&2; exit 1; }
+done
+installed_count="$(find "$fake_repo/.github/workflows" -name 'publish-*.yml' | wc -l | tr -d ' ')"
+template_count="$(find "$repository_root"/plugins/*/workflows -name 'publish-*.yml' | wc -l | tr -d ' ')"
+[[ "$installed_count" == "$template_count" ]] \
+  || { echo "FAIL: installed $installed_count stubs for $template_count templates" >&2; exit 1; }
+
+rm -rf "$fake_repo/.github"
+
 echo "bin/install workflow tests passed"
