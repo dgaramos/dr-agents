@@ -118,7 +118,7 @@ target match the configured reviewer identity.
 
 <!-- For each supported reviewer App (Claudio DR, Cody DR, or both),
      document at minimum: reviewer identity, dispatch method, reply mode,
-     resolution mode, and create-issue mode.
+     resolution mode, create-issue mode, and comment-issue mode.
      Without a declared mode, discover the adapter's documented workflow paths.
      Follow publication-routing-contract.md: prefer the App, and require
      evidence of unavailability before selecting authenticated personal fallback.
@@ -136,4 +136,7 @@ Example block for one reviewer:
 - **Create-issue mode:** `workflow_dispatch` on
   `.github/workflows/publish-claudio-issue.yml`; inputs: `title`, `body`,
   `labels`, `assignee`, `milestone`
+- **Comment-issue mode:** `workflow_dispatch` on
+  `.github/workflows/publish-claudio-issue-comment.yml`; inputs:
+  `issue_number`, `body`
 -->

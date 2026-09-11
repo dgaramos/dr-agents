@@ -213,6 +213,29 @@ jobs:
           [[ -n "$issue_number" ]] || { echo "the issue publisher left no smoke-target issue" >&2; exit 1; }
           echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
 
+  publish-issue-comment:
+    name: Dispatch issue-comment
+    # Comments on the permanent target the issue publisher just created or
+    # updated, rather than on a disposable one. An App cannot delete an issue,
+    # which is why that target is permanent -- but it CAN delete a comment on
+    # one (`Issues: write` covers both), so the reaper removes what this
+    # publishes and nothing accumulates. No second disposable target is needed.
+    needs: [setup, locate-issue]
+    if: always() && needs.locate-issue.result == 'success'
+    uses: dgaramos/dr-agents/.github/workflows/reusable-publish-issue-comment.yml@main
+    with:
+      agent: ${{ needs.setup.outputs.agent }}
+      client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+      issue_number: ${{ needs.locate-issue.outputs.issue_number }}
+      body: |
+        Publisher smoke test comment, run ${{ github.run_id }}.
+
+        Created by the issue-comment publisher (dr-agents#269) and deleted by
+        `.github/scripts/smoke-publishers-reap.sh`. If you are reading this long
+        after the run, the sweep did not reach it; deleting it by hand is safe.
+    secrets:
+      app_private_key: ${{ secrets[format('{0}_DR_PRIVATE_KEY', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+
   publish-pr:
     name: Dispatch pr
     needs: setup
@@ -359,7 +382,7 @@ jobs:
 
   assert:
     name: Assert what was published
-    needs: [setup, locate-issue, locate-pr, locate-thread, publish-issue, publish-pr, publish-pr-metadata, publish-review, publish-reply, publish-resolve]
+    needs: [setup, locate-issue, locate-pr, locate-thread, publish-issue, publish-issue-comment, publish-pr, publish-pr-metadata, publish-review, publish-reply, publish-resolve]
     if: always() && needs.setup.result == 'success'
     runs-on: ubuntu-latest
     permissions: { contents: read, pull-requests: read, issues: read }
@@ -372,6 +395,7 @@ jobs:
           CHECKS_JSON: >-
             [
               {"publisher":"issue","kind":"issue","ref":"${{ needs.locate-issue.outputs.issue_number }}","job_result":"${{ needs.publish-issue.result }}"},
+              {"publisher":"issue-comment","kind":"issue-comment","ref":"${{ needs.locate-issue.outputs.issue_number }}","job_result":"${{ needs.publish-issue-comment.result }}"},
               {"publisher":"pr","kind":"pr","ref":"${{ needs.locate-pr.outputs.pr_number }}","job_result":"${{ needs.publish-pr.result }}"},
               {"publisher":"pr-metadata","kind":"pr-labels","ref":"${{ needs.locate-pr.outputs.pr_number }}","expect":"smoke-target","job_result":"${{ needs.publish-pr-metadata.result }}"},
               {"publisher":"review","kind":"review","ref":"${{ needs.locate-pr.outputs.pr_number }}","job_result":"${{ needs.publish-review.result }}"},

@@ -104,9 +104,9 @@ answer survives a failure in any later step — writes to the step summary:
 - publisher definition release: `2`
 ```
 
-`bin/check` requires all six definitions to carry the same value. Bump it in
+`bin/check` requires all seven definitions to carry the same value. Bump it in
 the same change that alters what a publisher does, and never bump it in only
-some of the six: a marker that disagrees with itself is worse than none.
+some of the seven: a marker that disagrees with itself is worse than none.
 
 This is the same norm the migration recorded for publication outcomes — a run
 states what happened rather than leaving it to be inferred from an exit code.
@@ -126,16 +126,16 @@ clean failure and leaves a stray comment behind. The smoke test fails that case
 *naming* the publisher whose resource exists over a red job.
 
 It does not read the typed publication outcome from the step summary. When the
-smoke test was written that vocabulary existed in exactly one of the six
+smoke test was written that vocabulary existed in exactly one of the then-six
 definitions, and asserting on the API rather than on a log line proved to be
 the stronger check regardless: it observes what GitHub holds instead of
-trusting what the publisher reports about itself. All six definitions carry
+trusting what the publisher reports about itself. All seven definitions carry
 the vocabulary since dr-agents#278, which the smoke test then certified — the
 first behavior change it gated. The assertion stays on the API.
 
 ### Where it sits
 
-- **push to `main`** — one agent, the full six-publisher chain. This is the
+- **push to `main`** — one agent, the full seven-publisher chain. This is the
   automated counterpart of step 3 below, which until now rested on an operator
   remembering to look.
 - **`workflow_dispatch`** — both agents, and additionally a job pinned at
@@ -238,7 +238,7 @@ to `gh run view --log` and not only in the UI:
 | `stub-version-unknown` | The stub predates the guard and cannot report its version. | no |
 
 Bump `minimum_stub_version` **only** when a definition gains an input a stub
-must pass. All six must agree, and `bin/check` enforces that: a partial bump
+must pass. All seven must agree, and `bin/check` enforces that: a partial bump
 would make the guard lie about what it requires, which is worse than not having
 it.
 
