@@ -71,6 +71,7 @@ readonly required_paths=(
   "tests/test_publication_outcomes.sh"
   ".github/scripts/smoke-find-issue-target.sh"
   "tests/test_smoke_find_issue_target.sh"
+  "tests/test_stub_version_guard.sh"
   "core/pr-review/SKILL.md"
   "core/pr-review/references/review-contract.md"
   "core/pr-review/references/reporting.md"
@@ -643,6 +644,10 @@ bash tests/test_publish_review.sh
 bash tests/test_select_publisher.sh
 bash tests/test_install_workflows.sh
 bash tests/test_reusable_ref_resolution.sh
+# The outdated-stub guard (dr-agents#268). This owns the rules that keep the
+# six minimum literals in agreement and each stub's `stub_version:` equal to its
+# own version marker, so they live in one place rather than half here.
+bash tests/test_stub_version_guard.sh
 tests/test_discover_project_profile.sh
 tests/test_plugin_core_bundles.sh
 tests/test_helper_agents.sh

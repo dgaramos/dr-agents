@@ -218,30 +218,60 @@ Absent-then-present is what makes the tag the cause. Record both sets of run
 URLs together; the pre-promotion set is not a formality to be dropped once the
 post-promotion set is green.
 
-## Not yet solved: an outdated stub is silent
+## Detecting an outdated stub
 
-Nothing detects a consumer whose stub predates an input that a definition now
-requires. The stub simply does not pass it, and the input arrives empty. That
-is the failure mode this migration hit repeatedly, and it is the one still
-open.
+A stub is a file copied into the consumer, so the publishers duplicated one
+thing that surviving #260 did not remove: the **interface**. When a central
+definition gained an input the stub must pass, an older stub simply did not
+pass it. The input arrived empty and nothing said so -- the same silent-failure
+class as the four defects the migration itself hit.
 
-The version marker each stub carries (`# claudio-dr: vX.Y.Z`) is the raw
-material for detecting it, but at dispatch time nothing compares it against the
-definition being called. Closing that gap means a `stub_version` input on all
-six definitions and all twelve stub templates, compared against the catalog
-version staged at `catalog_ref`.
+Since dr-agents#268 every stub passes a `stub_version` literal equal to its own
+`# <agent>-dr: vX.Y.Z` marker, and the first step of every definition compares
+it against a `minimum_stub_version` literal embedded in that definition. Three
+outcomes, each reported to **stdout and the step summary**, so a run is legible
+to `gh run view --log` and not only in the UI:
 
-It was deliberately left out of the change that made this marker possible.
-Altering the required input surface of every definition in the same promotion
-that the propagation proof depends on would confound that proof — the property
-under test would no longer be the only thing that changed. Two further reasons
-support waiting: `reusable-publish-issue.yml` performs no checkout and so has
-no staged catalog to compare against, and the mechanism is forward-only, since
-a stub old enough to be the problem cannot pass a new input.
+| Outcome | Meaning | Fatal |
+| --- | --- | --- |
+| `stub-outdated` | The stub predates an input this publisher requires. Nothing was published. | yes |
+| `stub-version-malformed` | The stub reported something this guard cannot compare. | yes |
+| `stub-version-unknown` | The stub predates the guard and cannot report its version. | no |
 
-What exists today is operator-facing rather than dispatch-time: `bin/install`
-with no arguments reads each stub's marker and reports it as `drifted` when it
-trails the catalog.
+Bump `minimum_stub_version` **only** when a definition gains an input a stub
+must pass. All six must agree, and `bin/check` enforces that: a partial bump
+would make the guard lie about what it requires, which is worse than not having
+it.
+
+### Why a literal and not the staged catalog version
+
+The issue proposed comparing against the catalog version staged at
+`catalog_ref`. Two measurements ruled that out.
+
+Comparing against the *current* catalog version would fire on every routine
+version bump, in consumers that are perfectly correct. A guard that alarms when
+all is well is ignored within two releases, which reintroduces the silence by
+another route. What the check actually needs to know is not "is this stub the
+newest" but "is this stub too old for what this definition now requires", and
+only a hand-bumped minimum expresses that.
+
+And `reusable-publish-issue.yml` performs no checkout and takes no
+`catalog_ref` -- a property `tests/test_reusable_ref_resolution.sh` asserts
+rather than merely documents. A literal needs no staged catalog, so the issue
+publisher needs no exception: the special case disappears instead of being
+written down.
+
+### What it cannot do
+
+The mechanism is forward-only by construction. A stub old enough to predate the
+guard cannot pass the input that would report it, which is why an empty
+`stub_version` is reported but not fatal -- every stub installed before this
+shipped is in that state, and failing them would break working consumers over a
+usually benign condition. The check constrains future drift; it cannot
+retroactively detect drift already present in an installed stub.
+
+The operator-facing path remains: `bin/install` with no arguments reads each
+stub's marker and reports it as `drifted` when it trails the catalog.
 
 ## Rollback
 
