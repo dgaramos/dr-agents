@@ -67,6 +67,8 @@ readonly required_paths=(
   ".github/scripts/smoke-publishers-assert.sh"
   ".github/scripts/smoke-publishers-reap.sh"
   "tests/test_publisher_smoke.sh"
+  ".github/scripts/smoke-find-issue-target.sh"
+  "tests/test_smoke_find_issue_target.sh"
   "core/pr-review/SKILL.md"
   "core/pr-review/references/review-contract.md"
   "core/pr-review/references/reporting.md"
