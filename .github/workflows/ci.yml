@@ -57,6 +57,8 @@ jobs:
         run: bash tests/test_publish_pr_metadata.sh
       - name: test_publisher_smoke
         run: bash tests/test_publisher_smoke.sh
+      - name: test_smoke_find_issue_target
+        run: bash tests/test_smoke_find_issue_target.sh
       - name: test_install
         run: bash tests/test_install.sh
       - name: test_update

@@ -42,6 +42,10 @@ env:
   # job output that a later job might read before it exists.
   SMOKE_BRANCH: smoke/publishers-${{ github.run_id }}
   SMOKE_BASE: smoke-base
+  # Several jobs here run without a checkout, so `gh` has no git remote to infer
+  # the repository from -- which is how the first real run failed. Set once for
+  # every job rather than per call site, so a new job cannot reintroduce it.
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   setup:
@@ -132,9 +136,7 @@ jobs:
           # every later run the update path. Nothing is bootstrapped by hand,
           # and the issue is authored by the App -- which is what discovery by
           # author requires in the first place.
-          issue_number="$(gh issue list --label smoke-target --state all --limit 50 \
-            --json number,author \
-            --jq "[.[] | select(.author.login == \"${AGENT}-dr\")] | first | .number // empty")"
+          issue_number="$(bash .github/scripts/smoke-find-issue-target.sh)"
           if [[ -z "$issue_number" ]]; then
             echo "no smoke-target issue authored by ${AGENT}-dr[bot] yet; the issue publisher will create it"
             echo "- issue target: to be created by this run" >> "$GITHUB_STEP_SUMMARY"
@@ -192,6 +194,7 @@ jobs:
     outputs:
       issue_number: ${{ steps.find.outputs.issue_number }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Read the target the issue publisher created or updated
         id: find
         env:
@@ -199,9 +202,7 @@ jobs:
           AGENT: ${{ needs.setup.outputs.agent }}
         run: |
           set -euo pipefail
-          issue_number="$(gh issue list --label smoke-target --state all --limit 50 \
-            --json number,author \
-            --jq "[.[] | select(.author.login == \"${AGENT}-dr\")] | first | .number // empty")"
+          issue_number="$(bash .github/scripts/smoke-find-issue-target.sh)"
           [[ -n "$issue_number" ]] || { echo "the issue publisher left no smoke-target issue" >&2; exit 1; }
           echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
 
