@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/publication-outcome.sh"
+outcome_heading "${EXPECTED_AUTHOR:-publisher} thread publisher"
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
@@ -9,13 +11,13 @@ set -euo pipefail
 : "${EXPECTED_AUTHOR:?EXPECTED_AUTHOR is required}"
 : "${PUBLISHER_APP_SLUG:?PUBLISHER_APP_SLUG is required}"
 
-[[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "pr_number must be a positive integer" >&2; exit 1; }
-[[ -n "$THREAD_ID" ]] || { echo "thread_id is required" >&2; exit 1; }
-[[ "$PUBLISHER_APP_SLUG" == "${EXPECTED_AUTHOR%\[bot\]}" ]] || { echo "unexpected authenticated app" >&2; exit 1; }
+[[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || outcome_not_published "pr_number must be a positive integer"
+[[ -n "$THREAD_ID" ]] || outcome_not_published "thread_id is required"
+[[ "$PUBLISHER_APP_SLUG" == "${EXPECTED_AUTHOR%\[bot\]}" ]] || outcome_not_published "unexpected authenticated app"
 case "$THREAD_ACTION" in
   reply) : "${BODY:?body is required}" ;;
   resolve) ;;
-  *) echo "unsupported thread action" >&2; exit 1 ;;
+  *) outcome_not_published "unsupported thread action" ;;
 esac
 
 readonly expected_repository="$GITHUB_REPOSITORY"
@@ -29,16 +31,20 @@ while :; do
   [[ "$(jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage' <<<"$threads")" == true ]] || break
   cursor="$(jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor' <<<"$threads")"
 done
-[[ "$found" == true ]] || { echo "thread target mismatch" >&2; exit 1; }
+[[ "$found" == true ]] || outcome_not_published "thread target mismatch"
 
 if [[ "$THREAD_ACTION" == reply ]]; then
   result="$(gh api graphql -f query='mutation($thread: ID!, $body: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $thread, body: $body}) { comment { author { login } pullRequest { number repository { nameWithOwner } } } } }' -f thread="$THREAD_ID" -f body="$BODY")"
+  outcome_resource "reply on thread \`${THREAD_ID}\` of #${PR_NUMBER}"
   reply_author="$(jq -r '.data.addPullRequestReviewThreadReply.comment.author.login' <<<"$result")"
-  [[ "${reply_author%\[bot\]}" == "${EXPECTED_AUTHOR%\[bot\]}" ]] || { echo "unexpected reply author" >&2; exit 1; }
-  [[ "$(jq -r '.data.addPullRequestReviewThreadReply.comment.pullRequest.number' <<<"$result")" == "$PR_NUMBER" ]] || { echo "reply target mismatch" >&2; exit 1; }
-  [[ "$(jq -r '.data.addPullRequestReviewThreadReply.comment.pullRequest.repository.nameWithOwner' <<<"$result")" == "$expected_repository" ]] || { echo "reply repository mismatch" >&2; exit 1; }
+  [[ "${reply_author%\[bot\]}" == "${EXPECTED_AUTHOR%\[bot\]}" ]] || outcome_published_unverified "unexpected reply author"
+  [[ "$(jq -r '.data.addPullRequestReviewThreadReply.comment.pullRequest.number' <<<"$result")" == "$PR_NUMBER" ]] || outcome_published_unverified "reply target mismatch"
+  [[ "$(jq -r '.data.addPullRequestReviewThreadReply.comment.pullRequest.repository.nameWithOwner' <<<"$result")" == "$expected_repository" ]] || outcome_published_unverified "reply repository mismatch"
 else
-  gh api graphql -f query='mutation($thread: ID!) { resolveReviewThread(input: {threadId: $thread}) { thread { isResolved } } }' -f thread="$THREAD_ID" --jq '.data.resolveReviewThread.thread.isResolved' | grep -qx true
+  outcome_resource "resolution of thread \`${THREAD_ID}\` on #${PR_NUMBER}"
+  gh api graphql -f query='mutation($thread: ID!) { resolveReviewThread(input: {threadId: $thread}) { thread { isResolved } } }' -f thread="$THREAD_ID" --jq '.data.resolveReviewThread.thread.isResolved' | grep -qx true \
+    || outcome_published_unverified "the resolve mutation did not report the thread as resolved"
 fi
 
+outcome_published_ok
 printf 'Publication report: action=%s pr=%s thread=%s\n' "$THREAD_ACTION" "$PR_NUMBER" "$THREAD_ID"
