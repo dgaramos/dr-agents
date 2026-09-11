@@ -32,7 +32,9 @@ Usage: bin/install [--force]
 
   (no mode)         Check workflow presence and drift in .github/workflows/ of
                     the current repo. Reports each managed workflow as 'present',
-                    'absent', or 'drifted'. No files are written.
+                    'absent', 'drifted', or 'MISMATCH' — the last meaning the
+                    stub carries the current version marker over different
+                    content, which exits non-zero. No files are written.
   --global          Install claudio-dr plugin to ~/.claude/ and cody-dr plugin
                     to the global Codex config directory.
   --repo            Install claudio-dr plugin to .clone/ in the current repo.
@@ -50,9 +52,11 @@ Usage: bin/install [--force]
                     repo's .claude/ directory.
   --workflows       Install managed workflow stubs from the catalog into
                     .github/workflows/ of the current repo. Skips workflows already
-                    at the current version. Reports each action as 'installed' or
-                    'unchanged'. Publishers are thin dispatch stubs: no publication
-                    script is copied into the repository.
+                    at the current version and byte-identical to the template.
+                    Reports each action as 'installed', 'updated', 'unchanged', or
+                    'MISMATCH'. A MISMATCH is left untouched and exits non-zero;
+                    use --force to overwrite it. Publishers are thin dispatch
+                    stubs: no publication script is copied into the repository.
   --force           Skip conflict checking and overwrite all files from the
                     catalog source, printing a warning for each overwritten
                     file. Use 'agents update --global --force' to resolve
@@ -329,6 +333,47 @@ workflow_embedded_version() {
   fi
 }
 
+# Classify one installed stub against its catalog template.
+#
+# Echoes exactly one of: absent | present | mismatch | drifted.
+#
+# Until dr-agents#282 this decision read the version marker and nothing else, so
+# a template that changed without a version bump was reported as 'unchanged' in
+# every consumer while genuinely differing from the stub installed there. The
+# whole of the #268 guard sat in the catalog for four commits and reached no
+# consumer, and the installer said everything was current the entire time.
+#
+# 'mismatch' is that case and it is deliberately not 'drifted'. Drift is an
+# outdated stub, which is expected and is what an update is for. Equal markers
+# over differing content means something upstream is wrong: the template was
+# changed without a bump, or the stub was edited in place.
+#
+# Why a byte comparison here, when bin/check compares the same two kinds of file
+# through normalize_publisher: that normalization erases the reusable-workflow
+# ref because the catalog's own copy is deliberately pinned at @main while the
+# template consumers install is pinned at the protected release tag. That
+# licence to differ belongs to the catalog, not to a consumer. A consumer stub
+# is installed by copy and must equal its template byte for byte — measured
+# across all twelve stubs in every consumer. Normalizing here would let a
+# consumer stub wrongly pinned at @main compare as equal, which would recreate
+# this very silence somewhere more dangerous than where it started. Do not
+# "unify" the two comparisons; they answer different questions.
+workflow_stub_state() {
+  local dest="$1" src="$2" plugin="$3" catalog_ver="$4"
+  local embedded_ver
+  embedded_ver="$(workflow_embedded_version "$dest" "$plugin")"
+
+  if [[ "$embedded_ver" == "absent" ]]; then
+    echo "absent"
+  elif [[ "$embedded_ver" != "$catalog_ver" ]]; then
+    echo "drifted"
+  elif cmp -s "$src" "$dest"; then
+    echo "present"
+  else
+    echo "mismatch"
+  fi
+}
+
 # Return the catalog version for a plugin ("claudio-dr" or "cody-dr").
 plugin_catalog_version() {
   local plugin="$1"
@@ -351,26 +396,49 @@ mode_check_workflows() {
   echo "Workflow status in ${wf_dir}:"
   echo ""
 
+  local mismatches=0
   for entry in "${managed_workflows[@]}"; do
     local wf_name="${entry%%:*}"
     local plugin="${entry##*:}"
     local catalog_ver
     catalog_ver="$(plugin_catalog_version "$plugin")"
+    local src="${REPO_DIR}/plugins/${plugin}/workflows/${wf_name}"
     local dest="${wf_dir}/${wf_name}"
     local embedded_ver
     embedded_ver="$(workflow_embedded_version "$dest" "$plugin")"
 
     local status
-    if [[ "$embedded_ver" == "absent" ]]; then
-      status="absent"
-    elif [[ "$embedded_ver" == "$catalog_ver" ]]; then
-      status="present"
-    else
-      status="drifted  (installed: v${embedded_ver}, catalog: v${catalog_ver})"
-    fi
+    case "$(workflow_stub_state "$dest" "$src" "$plugin" "$catalog_ver")" in
+      absent)   status="absent" ;;
+      present)  status="present" ;;
+      mismatch)
+        status="MISMATCH  (v${catalog_ver} on both sides, content differs)"
+        mismatches=$((mismatches + 1))
+        ;;
+      *)        status="drifted  (installed: v${embedded_ver}, catalog: v${catalog_ver})" ;;
+    esac
     printf "  %-50s %s\n" "$wf_name" "$status"
   done
   echo ""
+
+  if [[ "${mismatches}" -gt 0 ]]; then
+    report_mismatch_diagnosis "${mismatches}"
+    return 1
+  fi
+}
+
+# Explain a MISMATCH once, naming both causes and the escape hatch.
+#
+# Drift is routine and exits zero. A mismatch is a defect somewhere upstream, so
+# it exits non-zero: a consumer's CI can gate on this command, and the operator
+# who runs it by hand gets told rather than reassured.
+report_mismatch_diagnosis() {
+  local count="$1"
+  echo "  ${count} stub(s) carry the current version marker over different content." >&2
+  echo "  That means the catalog template changed without a version bump, or the" >&2
+  echo "  stub was edited in place. Bump the plugin version in the catalog and" >&2
+  echo "  reinstall, or re-run with --force to overwrite the stub as it stands." >&2
+  echo "" >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -390,7 +458,7 @@ mode_install_workflows() {
   echo "Installing managed workflows to ${wf_dir}:"
   echo ""
 
-  local any_conflict=0
+  local any_mismatch=0
   for entry in "${managed_workflows[@]}"; do
     local wf_name="${entry%%:*}"
     local plugin="${entry##*:}"
@@ -401,27 +469,45 @@ mode_install_workflows() {
     local embedded_ver
     embedded_ver="$(workflow_embedded_version "$dest" "$plugin")"
 
-    if [[ "$embedded_ver" == "absent" ]]; then
-      mkdir -p "$wf_dir"
-      cp "$src" "$dest"
-      echo "  installed  ${wf_name}  (v${catalog_ver})"
-    elif [[ "$embedded_ver" == "$catalog_ver" ]]; then
-      if [[ "${FORCE:-0}" == "1" ]]; then
+    case "$(workflow_stub_state "$dest" "$src" "$plugin" "$catalog_ver")" in
+      absent)
+        mkdir -p "$wf_dir"
         cp "$src" "$dest"
-        echo "  installed  ${wf_name}  (force, v${catalog_ver})"
-      else
-        echo "  unchanged  ${wf_name}  (v${catalog_ver})"
-      fi
-    else
-      # drifted — update to catalog version
-      if [[ "${FORCE:-0}" == "1" ]]; then
-        cp "$src" "$dest"
-        echo "  installed  ${wf_name}  (force, v${embedded_ver} -> v${catalog_ver})"
-      else
-        cp "$src" "$dest"
-        echo "  updated    ${wf_name}  (v${embedded_ver} -> v${catalog_ver})"
-      fi
-    fi
+        echo "  installed  ${wf_name}  (v${catalog_ver})"
+        ;;
+      present)
+        if [[ "${FORCE:-0}" == "1" ]]; then
+          cp "$src" "$dest"
+          echo "  installed  ${wf_name}  (force, v${catalog_ver})"
+        else
+          echo "  unchanged  ${wf_name}  (v${catalog_ver})"
+        fi
+        ;;
+      mismatch)
+        # Report, do not update. Overwriting would restore byte identity and
+        # leave the forgotten version bump invisible to the one person in a
+        # position to notice it — which is how dr-agents#282 stayed silent in
+        # three consumers. --force remains the explicit way to overwrite, and
+        # the diagnosis below says so.
+        if [[ "${FORCE:-0}" == "1" ]]; then
+          cp "$src" "$dest"
+          echo "  installed  ${wf_name}  (force, content mismatch at v${catalog_ver})"
+        else
+          echo "  MISMATCH   ${wf_name}  (v${catalog_ver} on both sides, content differs)"
+          any_mismatch=$((any_mismatch + 1))
+        fi
+        ;;
+      *)
+        # drifted — update to catalog version
+        if [[ "${FORCE:-0}" == "1" ]]; then
+          cp "$src" "$dest"
+          echo "  installed  ${wf_name}  (force, v${embedded_ver} -> v${catalog_ver})"
+        else
+          cp "$src" "$dest"
+          echo "  updated    ${wf_name}  (v${embedded_ver} -> v${catalog_ver})"
+        fi
+        ;;
+    esac
   done
 
   echo ""
@@ -441,6 +527,12 @@ mode_install_workflows() {
     echo "        the reusable-workflow migration. Nothing reads them now; they are"
     echo "        safe to delete. This installer will not remove them for you."
     echo ""
+  fi
+
+  if [[ "${any_mismatch}" -gt 0 ]]; then
+    echo "Workflow install incomplete: ${any_mismatch} stub(s) left untouched." >&2
+    report_mismatch_diagnosis "${any_mismatch}"
+    return 1
   fi
 
   echo "Workflow install complete (dispatch stubs only; publication runs from the catalog)."

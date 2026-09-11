@@ -288,4 +288,108 @@ for wf in \
     || { echo "FAIL: $name inline_comments_json description must be a quoted YAML string" >&2; exit 1; }
 done
 
+# ---------------------------------------------------------------------------
+# Criterion 9 — content divergence at an equal version marker is its own state
+#
+# The installer decided whether a stub needed updating by comparing the version
+# marker alone, never the content. dr-agents#282 added stub_version: to all
+# twelve templates without bumping the version, and all three consumers were
+# told 'unchanged (v0.1.31)' while the installed stub genuinely differed from
+# the template. The #268 guard reached no consumer, and nothing said so.
+#
+# Marker equal + content differing is not ordinary staleness. It means the
+# catalog template changed without a version bump, or the stub was edited in
+# place. It gets its own state, ranked above 'drifted'.
+# ---------------------------------------------------------------------------
+
+rm -rf "$fake_repo/.github"
+
+# Fixture: a fully current install, then one installed stub mutated in a way
+# that leaves the version marker untouched — exactly the #282 shape.
+(cd "$fake_repo" && run_install "$fake_repo" --workflows) >/dev/null
+readonly mismatch_stub="$fake_repo/.github/workflows/publish-cody-resolve.yml"
+printf '# content changed with no version bump\n' >> "$mismatch_stub"
+grep -qF "# cody-dr: v${cody_ver}" "$mismatch_stub" \
+  || { echo "FAIL: fixture invalid — the mutated stub must keep its version marker" >&2; exit 1; }
+
+# 9a: --workflows must not call this 'unchanged', must name it, and must fail.
+mismatch_install_rc=0
+mismatch_install_output="$(cd "$fake_repo" && run_install "$fake_repo" --workflows)" \
+  || mismatch_install_rc=$?
+mismatch_install_line="$(echo "$mismatch_install_output" | grep "publish-cody-resolve" || true)"
+echo "$mismatch_install_line" | grep -q "unchanged" \
+  && { echo "FAIL: --workflows reported 'unchanged' for a stub whose content differs" >&2
+       echo "Output was: $mismatch_install_output" >&2; exit 1; } || true
+echo "$mismatch_install_line" | grep -q "MISMATCH" \
+  || { echo "FAIL: --workflows must report MISMATCH when content differs at an equal version" >&2
+       echo "Output was: $mismatch_install_output" >&2; exit 1; }
+[[ "$mismatch_install_rc" -ne 0 ]] \
+  || { echo "FAIL: --workflows must exit non-zero when a MISMATCH is present" >&2; exit 1; }
+
+# 9b: it reports, it does not update. Overwriting would hide the missing bump
+# from the one operator positioned to notice it.
+grep -qF "# content changed with no version bump" "$mismatch_stub" \
+  || { echo "FAIL: --workflows must not overwrite a MISMATCH without --force" >&2; exit 1; }
+echo "$mismatch_install_output" | grep -qi -- "--force" \
+  || { echo "FAIL: a MISMATCH report must name --force as the way to overwrite" >&2
+       echo "Output was: $mismatch_install_output" >&2; exit 1; }
+
+# 9c: the other eleven stubs are still processed; one bad file is not an abort.
+echo "$mismatch_install_output" | grep -q "publish-claudio-resolve" \
+  || { echo "FAIL: a MISMATCH must not stop the installer from reporting other stubs" >&2
+       echo "Output was: $mismatch_install_output" >&2; exit 1; }
+
+# 9d: the no-argument report distinguishes it from 'present' and gates CI.
+mismatch_check_rc=0
+mismatch_check_output="$(cd "$fake_repo" && run_install "$fake_repo")" || mismatch_check_rc=$?
+mismatch_check_line="$(echo "$mismatch_check_output" | grep "publish-cody-resolve" || true)"
+echo "$mismatch_check_line" | grep -q "MISMATCH" \
+  || { echo "FAIL: no-arg check must report MISMATCH, not present, for diverging content" >&2
+       echo "Output was: $mismatch_check_output" >&2; exit 1; }
+[[ "$mismatch_check_rc" -ne 0 ]] \
+  || { echo "FAIL: no-arg check must exit non-zero when a MISMATCH is present" >&2; exit 1; }
+
+# 9e: --force is the escape hatch and restores byte identity with the template.
+force_mismatch_rc=0
+force_mismatch_output="$(cd "$fake_repo" && run_install "$fake_repo" --workflows --force)" \
+  || force_mismatch_rc=$?
+[[ "$force_mismatch_rc" -eq 0 ]] \
+  || { echo "FAIL: --workflows --force must resolve a MISMATCH and exit zero" >&2
+       echo "Output was: $force_mismatch_output" >&2; exit 1; }
+cmp -s "$repository_root/plugins/cody-dr/workflows/publish-cody-resolve.yml" "$mismatch_stub" \
+  || { echo "FAIL: --force must restore byte identity with the catalog template" >&2; exit 1; }
+
+# 9f: THE GUARD ON 9a. An implementation that classified every difference as a
+# MISMATCH would satisfy every assertion above while destroying the ordinary
+# update path. A stub whose marker AND content both differ is plain drift: it
+# stays 'drifted' in the report and 'updated' by the installer, and the
+# installer still exits zero. Without this, 9a passes for free.
+printf '# claudio-dr: v0.0.1\nname: drifted\n' \
+  > "$fake_repo/.github/workflows/publish-claudio-resolve.yml"
+both_differ_check_rc=0
+both_differ_check="$(cd "$fake_repo" && run_install "$fake_repo")" || both_differ_check_rc=$?
+both_differ_line="$(echo "$both_differ_check" | grep "publish-claudio-resolve" || true)"
+echo "$both_differ_line" | grep -q "drifted" \
+  || { echo "FAIL: an outdated marker with differing content must stay 'drifted'" >&2
+       echo "Output was: $both_differ_check" >&2; exit 1; }
+echo "$both_differ_line" | grep -q "MISMATCH" \
+  && { echo "FAIL: ordinary drift must not be reclassified as MISMATCH" >&2
+       echo "Output was: $both_differ_check" >&2; exit 1; } || true
+[[ "$both_differ_check_rc" -eq 0 ]] \
+  || { echo "FAIL: ordinary drift must keep the no-arg check at exit zero" >&2; exit 1; }
+
+both_differ_install_rc=0
+both_differ_install="$(cd "$fake_repo" && run_install "$fake_repo" --workflows)" \
+  || both_differ_install_rc=$?
+echo "$both_differ_install" | grep "publish-claudio-resolve" | grep -q "updated" \
+  || { echo "FAIL: ordinary drift must still be updated by --workflows" >&2
+       echo "Output was: $both_differ_install" >&2; exit 1; }
+[[ "$both_differ_install_rc" -eq 0 ]] \
+  || { echo "FAIL: ordinary drift alone must keep --workflows at exit zero" >&2; exit 1; }
+cmp -s "$repository_root/plugins/claudio-dr/workflows/publish-claudio-resolve.yml" \
+       "$fake_repo/.github/workflows/publish-claudio-resolve.yml" \
+  || { echo "FAIL: an updated drifted stub must match the catalog template" >&2; exit 1; }
+
+rm -rf "$fake_repo/.github"
+
 echo "bin/install workflow tests passed"
