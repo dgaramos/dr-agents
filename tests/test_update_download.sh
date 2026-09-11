@@ -74,9 +74,18 @@ exit 1
 EOF
 chmod +x "$fake_bin/curl"
 
+# bin/install --repo installs into the *current working directory*, not into
+# HOME, so a faked HOME alone does not contain a stray install: an unrejected
+# --repo would write into whatever directory the suite happens to run from,
+# which is the catalog checkout itself. Every invocation therefore runs from a
+# scratch directory.
+readonly scratch_cwd="$tmp/cwd"
+mkdir -p "$scratch_cwd"
+
 run_update() {
-  HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" PATH="$fake_bin:$PATH" \
-    bash "$repository_root/bin/update" "$@" 2>&1
+  ( cd "$scratch_cwd" \
+      && HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" PATH="$fake_bin:$PATH" \
+         bash "$repository_root/bin/update" "$@" 2>&1 )
 }
 
 # ---------------------------------------------------------------------------
@@ -135,10 +144,125 @@ if run_update --download 2>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# bad args: --download with --global exits non-zero
+# Mutually exclusive mode flags
+#
+# usage() documents --global, --repo, --all and --download as four alternative
+# invocations, so no two of them may be combined. The argument loop used to be
+# last-wins, which silently resolved every pair to whichever flag came last and
+# then executed it: `bin/update --download --global` performed a complete
+# global install and exited 0.
+#
+# These assertions must not be able to pass for an environmental reason. The
+# assertion they replace accepted *any* non-zero exit, and a failing
+# `git pull --ff-only` supplied one whenever the checkout's branch had no
+# configured upstream — so the result was decided by branch configuration
+# rather than by bin/update. Each case below therefore asserts the cause and
+# not merely the exit status: the message must name both conflicting flags,
+# and pull_catalog must never have been reached.
 # ---------------------------------------------------------------------------
-if run_update --download --global 2>/dev/null; then
-  echo "FAIL: --download --global should be rejected" >&2
+
+# Record git invocations instead of performing them. bin/update runs
+# `git pull --ff-only` against its own checkout, which must not happen here,
+# and an empty log is the direct evidence that rejection precedes the pull.
+readonly git_log="$tmp/git-invocations.log"
+: > "$git_log"
+cat > "$fake_bin/git" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >> "${git_log}"
+exit 0
+EOF
+chmod +x "$fake_bin/git"
+
+# Sentinel state. A rejected invocation must leave every one of these untouched;
+# a silent install is what the last-wins loop actually caused.
+echo "sentinel-pointer" > "$fake_catalog_store/catalog-path"
+rm -rf "$fake_home/.claude" "$codex_dir" "$fake_home/.local/bin"
+
+readonly mode_flags=(global repo all download)
+
+for first in "${mode_flags[@]}"; do
+  for second in "${mode_flags[@]}"; do
+    [[ "$first" == "$second" ]] && continue
+
+    if out="$(run_update "--$first" "--$second" 2>&1)"; then
+      echo "FAIL: --$first --$second should be rejected as mutually exclusive, but exited 0; output: $out" >&2
+      exit 1
+    fi
+
+    if ! echo "$out" | grep -qi "mutually exclusive"; then
+      echo "FAIL: --$first --$second exited non-zero, but not for the mutually-exclusive reason; output: $out" >&2
+      exit 1
+    fi
+
+    if ! echo "$out" | grep -q -- "--$first"; then
+      echo "FAIL: rejection of --$first --$second does not name --$first; output: $out" >&2
+      exit 1
+    fi
+
+    if ! echo "$out" | grep -q -- "--$second"; then
+      echo "FAIL: rejection of --$first --$second does not name --$second; output: $out" >&2
+      exit 1
+    fi
+
+    if echo "$out" | grep -q "Pulling latest catalog"; then
+      echo "FAIL: --$first --$second reached pull_catalog before rejecting; the result would then depend on whether the branch has an upstream; output: $out" >&2
+      exit 1
+    fi
+  done
+done
+
+# Rejection precedes any git invocation at all, for every pair above.
+if [[ -s "$git_log" ]]; then
+  echo "FAIL: a rejected mode pair still invoked git: $(< "$git_log")" >&2
+  exit 1
+fi
+
+# No rejected pair installed anything.
+pointer_after="$(< "$fake_catalog_store/catalog-path")"
+[[ "$pointer_after" == "sentinel-pointer" ]] || \
+  { echo "FAIL: a rejected mode pair rewrote the catalog-path pointer; got: $pointer_after" >&2; exit 1; }
+[[ ! -d "$fake_home/.claude" ]] || \
+  { echo "FAIL: a rejected mode pair installed into ~/.claude" >&2; exit 1; }
+[[ ! -d "$codex_dir" ]] || \
+  { echo "FAIL: a rejected mode pair installed into the Codex config directory" >&2; exit 1; }
+[[ ! -e "$fake_home/.local/bin/agents" ]] || \
+  { echo "FAIL: a rejected mode pair installed the agents CLI" >&2; exit 1; }
+[[ ! -d "$scratch_cwd/.claude" ]] || \
+  { echo "FAIL: a rejected mode pair performed a repo-local install in the working directory" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# The pre-existing modifier guards keep their own messages. These are not
+# mode-versus-mode conflicts and must not be absorbed by the new one.
+# ---------------------------------------------------------------------------
+assert_rejected_with() {
+  local expected="$1"; shift
+  local output
+  if output="$(run_update "$@" 2>&1)"; then
+    echo "FAIL: $* should be rejected; output: $output" >&2
+    exit 1
+  fi
+  echo "$output" | grep -qF -e "$expected" || \
+    { echo "FAIL: $* should be rejected with '$expected'; output: $output" >&2; exit 1; }
+}
+
+assert_rejected_with "--force is not valid with --download"    --download --force
+assert_rejected_with "--workflows is only valid with --global" --repo --workflows
+assert_rejected_with "--profile is not valid with --global"    --global --profile demo
+
+# --workflows is rejected for every mode other than global by a single guard,
+# including --download. bin/update used to carry a second, narrower guard for
+# the --download/--workflows pair specifically; it was unreachable, because
+# this one always fired first.
+assert_rejected_with "--workflows is only valid with --global" --download --workflows
+
+# ---------------------------------------------------------------------------
+# A repeated identical mode flag is not a conflict. Tightening that would be a
+# behavior change nobody asked for, so only the absence of the rejection is
+# asserted here; the install path itself is covered by tests/test_update.sh.
+# ---------------------------------------------------------------------------
+repeat_out="$(run_update --global --global 2>&1 || true)"
+if echo "$repeat_out" | grep -qi "mutually exclusive"; then
+  echo "FAIL: --global --global is not a mode conflict; output: $repeat_out" >&2
   exit 1
 fi
 

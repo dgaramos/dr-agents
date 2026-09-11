@@ -700,18 +700,33 @@ PROFILE_NAME=""
 DOWNLOAD_VERSION=""
 FORCE=0
 
+# --global, --repo, --download, --status and --workflows are the five
+# alternative invocations in usage(); no two may be combined. Selecting the
+# mode through this helper rejects a conflicting pair during parsing, so the
+# rejection is order-independent and happens before any file is written.
+# Repeating the same flag is idempotent, not a conflict. `check_workflows` is
+# the no-flag default rather than a flag, so it is not part of this set.
+set_mode() {
+  local requested="$1"
+  if [[ -n "${MODE}" && "${MODE}" != "${requested}" ]]; then
+    echo "--${MODE} and --${requested} are mutually exclusive" >&2
+    exit 1
+  fi
+  MODE="${requested}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --global)
-      MODE="global"
+      set_mode "global"
       shift
       ;;
     --repo)
-      MODE="repo"
+      set_mode "repo"
       shift
       ;;
     --download)
-      MODE="download"
+      set_mode "download"
       shift
       ;;
     --version)
@@ -731,11 +746,11 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --status)
-      MODE="status"
+      set_mode "status"
       shift
       ;;
     --workflows)
-      MODE="workflows"
+      set_mode "workflows"
       shift
       ;;
     --force)

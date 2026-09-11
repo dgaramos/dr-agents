@@ -67,3 +67,5 @@ jobs:
         run: bash tests/test_install.sh
       - name: test_update
         run: bash tests/test_update.sh
+      - name: test_update_download
+        run: bash tests/test_update_download.sh
