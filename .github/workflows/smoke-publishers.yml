@@ -124,13 +124,22 @@ jobs:
           # every run would leave one behind forever. Its update path verifies
           # the existing author is the App, so this exercises more of the
           # definition than creation does.
+          #
+          # An empty result is not an error. `reusable-publish-issue.yml`
+          # treats an empty `issue_number` as create and a populated one as
+          # update, so passing the empty string through makes the first run
+          # exercise the creation path of the very definition under test, and
+          # every later run the update path. Nothing is bootstrapped by hand,
+          # and the issue is authored by the App -- which is what discovery by
+          # author requires in the first place.
           issue_number="$(gh issue list --label smoke-target --state all --limit 50 \
             --json number,author \
             --jq "[.[] | select(.author.login == \"${AGENT}-dr\")] | first | .number // empty")"
           if [[ -z "$issue_number" ]]; then
-            echo "no smoke-target issue authored by ${AGENT}-dr[bot]" >&2
-            echo "bootstrap it once by dispatching publish-${AGENT}-issue.yml with the label smoke-target" >&2
-            exit 1
+            echo "no smoke-target issue authored by ${AGENT}-dr[bot] yet; the issue publisher will create it"
+            echo "- issue target: to be created by this run" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- issue target: [#${issue_number}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/issues/${issue_number})" >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
 
@@ -143,11 +152,58 @@ jobs:
     with:
       agent: ${{ needs.setup.outputs.agent }}
       client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+      # Empty on the first run, which makes the definition create the target;
+      # populated afterwards, which makes it update. Both paths get exercised
+      # over time, and neither needs a manual step.
       issue_number: ${{ needs.setup.outputs.issue_number }}
+      # Passed on every run, not only at creation. Discovery is by label and
+      # author, so re-asserting the label each run means a removed label heals
+      # itself instead of becoming a second thing to fix by hand.
+      labels: smoke-target
       title: Publisher smoke target (${{ needs.setup.outputs.agent }})
-      body: Updated by the publisher smoke test, run ${{ github.run_id }}.
+      body: |
+        Permanent target for the publisher smoke test
+        (`.github/workflows/smoke-publishers.yml`, dr-agents#267).
+
+        **Do not close this issue, and do not remove the `smoke-target` label.**
+        The smoke test finds this issue by label and author. A GitHub App cannot
+        delete an issue, so the test keeps one permanent target per agent and
+        updates it, rather than creating one per run and leaving every one of
+        them behind forever.
+
+        This issue was created by the issue publisher itself and is updated by
+        it on each run. Its contents carry no meaning; the run that last touched
+        it is recorded below.
+
+        Last updated by run ${{ github.run_id }}.
     secrets:
       app_private_key: ${{ secrets[format('{0}_DR_PRIVATE_KEY', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+
+  locate-issue:
+    name: Locate the permanent issue target
+    # The number is read back after the publisher runs rather than taken from
+    # `setup`, because on a first run `setup` has no number to give: the
+    # publisher is what creates it. Everything downstream that needs the number
+    # reads it here.
+    needs: [setup, publish-issue]
+    if: always() && needs.publish-issue.result == 'success'
+    runs-on: ubuntu-latest
+    permissions: { issues: read }
+    outputs:
+      issue_number: ${{ steps.find.outputs.issue_number }}
+    steps:
+      - name: Read the target the issue publisher created or updated
+        id: find
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AGENT: ${{ needs.setup.outputs.agent }}
+        run: |
+          set -euo pipefail
+          issue_number="$(gh issue list --label smoke-target --state all --limit 50 \
+            --json number,author \
+            --jq "[.[] | select(.author.login == \"${AGENT}-dr\")] | first | .number // empty")"
+          [[ -n "$issue_number" ]] || { echo "the issue publisher left no smoke-target issue" >&2; exit 1; }
+          echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
 
   publish-pr:
     name: Dispatch pr
@@ -278,13 +334,14 @@ jobs:
     # Proving the tag serves consumers therefore needs its own statically
     # pinned job (AC-05). The issue publisher is the cheapest proof: it is
     # self-contained and needs no staging.
-    needs: setup
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+    needs: [setup, locate-issue]
+    if: ${{ always() && needs.locate-issue.result == 'success' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
     uses: dgaramos/dr-agents/.github/workflows/reusable-publish-issue.yml@workflows-v1
     with:
       agent: ${{ needs.setup.outputs.agent }}
       client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
-      issue_number: ${{ needs.setup.outputs.issue_number }}
+      issue_number: ${{ needs.locate-issue.outputs.issue_number }}
+      labels: smoke-target
       title: Publisher smoke target (${{ needs.setup.outputs.agent }})
       body: Updated by the publisher smoke test at workflows-v1, run ${{ github.run_id }}.
     secrets:
@@ -294,7 +351,7 @@ jobs:
 
   assert:
     name: Assert what was published
-    needs: [setup, locate-pr, locate-thread, publish-issue, publish-pr, publish-pr-metadata, publish-review, publish-reply, publish-resolve]
+    needs: [setup, locate-issue, locate-pr, locate-thread, publish-issue, publish-pr, publish-pr-metadata, publish-review, publish-reply, publish-resolve]
     if: always() && needs.setup.result == 'success'
     runs-on: ubuntu-latest
     permissions: { contents: read, pull-requests: read, issues: read }
@@ -306,7 +363,7 @@ jobs:
           EXPECTED_AUTHOR: ${{ needs.setup.outputs.agent }}-dr[bot]
           CHECKS_JSON: >-
             [
-              {"publisher":"issue","kind":"issue","ref":"${{ needs.setup.outputs.issue_number }}","job_result":"${{ needs.publish-issue.result }}"},
+              {"publisher":"issue","kind":"issue","ref":"${{ needs.locate-issue.outputs.issue_number }}","job_result":"${{ needs.publish-issue.result }}"},
               {"publisher":"pr","kind":"pr","ref":"${{ needs.locate-pr.outputs.pr_number }}","job_result":"${{ needs.publish-pr.result }}"},
               {"publisher":"pr-metadata","kind":"pr-labels","ref":"${{ needs.locate-pr.outputs.pr_number }}","expect":"smoke-target","job_result":"${{ needs.publish-pr-metadata.result }}"},
               {"publisher":"review","kind":"review","ref":"${{ needs.locate-pr.outputs.pr_number }}","job_result":"${{ needs.publish-review.result }}"},

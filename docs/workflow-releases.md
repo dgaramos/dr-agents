@@ -157,7 +157,15 @@ promotion first carries the file onto `workflows-v1`.
 The disposable pull request targets a permanent `smoke-base` branch, never
 `main`, so it costs no CI run and is not subject to the adapter co-author rule.
 The issue publisher updates one permanent `smoke-target` issue per agent rather
-than creating one per run, because an App cannot delete an issue.
+than creating one per run, because an App cannot delete an issue. When that
+target does not exist yet, the run creates it through the issue publisher
+itself: `reusable-publish-issue.yml` treats an empty `issue_number` as create
+and a populated one as update, so the first run exercises the creation path of
+the definition under test and every later run the update path. The target is
+therefore authored by the App, which is what discovery by author requires, and
+there is no manual bootstrap step. The `smoke-target` label is re-asserted on
+every run, so a removed label heals itself rather than becoming a second thing
+to fix by hand.
 
 Cleanup runs at the end of the run, and a reaper runs at the **start** of every
 run as well. The second is what matters: a cleanup job cannot run for a run that
