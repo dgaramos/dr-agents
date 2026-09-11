@@ -65,6 +65,11 @@ while IFS= read -r check; do
     pr)     observed="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${ref}" --jq .user.login 2>/dev/null || true)" ;;
     review) observed="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${ref}/reviews" --jq '.[-1].user.login' 2>/dev/null || true)" ;;
     reply)  observed="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${ref}/comments" --jq '.[-1].user.login' 2>/dev/null || true)" ;;
+    # The newest comment on the host issue. The smoke run comments on the
+    # permanent smoke-target issue and the reaper deletes it afterwards, so the
+    # last comment is the one this run just published.
+    issue-comment)
+      observed="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ref}/comments" --jq '.[-1].user.login' 2>/dev/null || true)" ;;
     pr-labels)
       observed="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ref}" --jq '[.labels[].name]' 2>/dev/null || true)" ;;
     resolve)

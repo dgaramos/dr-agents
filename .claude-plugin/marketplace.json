@@ -8,7 +8,7 @@
       "name": "claudio-dr",
       "source": "./plugins/claudio-dr",
       "description": "Portable PR review, findings, issue authoring, and issue-delivery workflows for Claude Code.",
-      "version": "0.1.32"
+      "version": "0.1.33"
     }
   ]
 }

@@ -4,6 +4,34 @@ All notable changes to this catalog are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.33] - 2026-09-11
+
+### Added
+
+- A seventh central publisher definition,
+  `.github/workflows/reusable-publish-issue-comment.yml`, giving both Apps a
+  route for commenting on an issue. The six existing definitions covered issue
+  creation and update, pull request creation, pull request metadata, review
+  submission, thread replies, and thread resolution; commenting had no route at
+  all, which forced the evidence comment on #260 out under a personal account.
+- `comment-issue` publisher stubs for both agents, and the matching installed
+  templates.
+
+### Changed
+
+- The publisher smoke test now exercises the issue-comment route against the
+  permanent `smoke-target` issue; the reaper deletes the comments it leaves. A
+  GitHub App cannot delete an issue but can delete a comment on one, so this
+  needs no additional disposable target.
+- Stub surface bumped to `0.1.33`. Reinstall consumer stubs after the
+  `workflows-v1` promotion.
+
+### Unchanged, deliberately
+
+- The `publisher definition release` marker stays at `3` and
+  `minimum_stub_version` at `0.1.31`. Adding a definition does not change what
+  the existing six do, and bumping either would make the marker lie about them.
+
 ## [0.1.15] - 2026-08-29
 
 ### Added

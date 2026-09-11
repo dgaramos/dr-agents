@@ -1,7 +1,39 @@
-# Central publisher definition for #260. Consumers reach this through a thin
-# workflow_dispatch stub; the stub is irreducible because workflow_dispatch
-# requires the workflow to exist on the consumer's default branch.
-name: Publish pull request
+# Central publisher definition for #269, the seventh route.
+#
+# The six that preceded it covered creating and updating an issue, creating a
+# pull request, applying pull request metadata, replying in a review thread,
+# resolving a thread, and submitting a review. Commenting on an issue had no
+# route at all. That gap forced a disclosed identity break: the evidence comment
+# on dr-agents#260 went out under a personal account, not as the routing
+# contract's proven-unavailable fallback, but because the operation did not
+# exist. Calling that a fallback obscured a missing feature.
+#
+# WHY A SEVENTH DEFINITION RATHER THAN A MODE ON reusable-publish-issue.yml.
+# The issue left the shape open and asked for it to be measured. Two
+# measurements settled it:
+#
+#   1. The saving is not where it looks. The cost of this change is not files in
+#      the catalog; it is the release cycle -- version bump, merge, tag
+#      promotion, reinstall in every consumer. A mode added to the issue
+#      publisher changes the stub's dispatch surface too, so it pays that same
+#      cycle in full. It saves four files and nothing else.
+#   2. A mode would cost a guarantee that exists today. `title` is
+#      `required: true` in the issue stub's workflow_dispatch form, and GitHub
+#      enforces that at dispatch time. A comment has no title, so a shared form
+#      would have to relax `title` to optional in every consumer -- weakening
+#      validation on the create path, which is the most used one, to save those
+#      four files.
+#
+# The property worth protecting -- self-contained, no checkout, no catalog_ref,
+# and therefore no ref skew -- is not lost by splitting: this definition is a
+# single POST and one verification, so it is born self-contained for the same
+# reason the issue publisher is. tests/test_reusable_ref_resolution.sh asserts
+# that for both.
+#
+# Consumers reach this through a thin workflow_dispatch stub; the stub is
+# irreducible because workflow_dispatch requires the workflow to exist on the
+# consumer's default branch.
+name: Publish issue comment
 on:
   workflow_call:
     inputs:
@@ -15,19 +47,8 @@ on:
           cross the reusable-workflow boundary by inheritance.
         required: true
         type: string
-      title: { description: Pull request title, required: true, type: string }
-      body: { description: Completed pull request body, required: true, type: string }
-      head_branch: { description: Pushed branch in this repository, required: true, type: string }
-      base_branch: { description: Target branch, required: true, type: string }
-      catalog_ref:
-        description: >-
-          The ref of this catalog that the caller resolved this workflow at. The
-          stub passes the very ref it names in `uses:`, and `bin/check` asserts
-          the two are identical. This is what keeps the workflow and the scripts
-          on one commit: a reusable workflow cannot derive its own ref, measured
-          in docs/spike-reusable-workflow-resolution.md.
-        required: true
-        type: string
+      issue_number: { description: Issue or pull request number to comment on, required: true, type: string }
+      body: { description: Comment body in Markdown, required: true, type: string }
       stub_version:
         description: >-
           The catalog version of the stub that dispatched this run, passed as a
@@ -138,43 +159,84 @@ jobs:
           private-key: ${{ secrets.app_private_key }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
-          permission-pull-requests: write
-      - name: Validate the catalog ref
-        id: catalog
-        env:
-          CATALOG_REF: ${{ inputs.catalog_ref }}
-        run: |
-          set -euo pipefail
-          # Fail loudly here rather than with a confusing "No such file" from
-          # the publisher step, which would be indistinguishable from a script
-          # bug. This preserves the guard the composite action used to provide.
-          if [[ -z "${CATALOG_REF}" ]]; then
-            echo "catalog_ref is empty; the stub must pass the ref it calls" >&2
-            exit 1
-          fi
-          if [[ ! "${CATALOG_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
-            echo "catalog_ref is malformed: '${CATALOG_REF}'" >&2
-            exit 1
-          fi
-          # Surface the ref before anything runs, so a run's provenance is
-          # readable without inferring it from an exit code.
-          echo "catalog ref: ${CATALOG_REF}"
-          echo "- catalog ref: \`${CATALOG_REF}\`" >> "$GITHUB_STEP_SUMMARY"
-      - name: Check out the catalog at the ref this workflow was called at
-        # v4.4.0. The only pinned checkout in the publisher definitions.
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          repository: dgaramos/dr-agents
-          ref: ${{ inputs.catalog_ref }}
-          path: .dr-agents-catalog
-          persist-credentials: false
-      - name: Create and verify pull request
+          # The same permission that lets the App create the comment lets it
+          # delete one. That is what makes the smoke test's disposable target
+          # work without accumulating litter -- see the note in
+          # .github/scripts/smoke-publishers-reap.sh.
+          permission-issues: write
+
+      - name: Create and verify the comment
+        id: comment
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PUBLISHER_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-          EXPECTED_AUTHOR: ${{ inputs.agent }}-dr[bot]
-          TITLE: ${{ inputs.title }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
           BODY: ${{ inputs.body }}
-          HEAD_BRANCH: ${{ inputs.head_branch }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
-        run: bash "${{ github.workspace }}/.dr-agents-catalog/.github/scripts/publish-pr.sh"
+          EXPECTED_AUTHOR: ${{ inputs.agent }}-dr[bot]
+        run: |
+          set -euo pipefail
+          # The typed outcome vocabulary is emitted inline rather than sourced
+          # from .github/scripts/publication-outcome.sh. That is deliberate and
+          # it is not an oversight to unify later: sourcing that script requires
+          # a checkout, a checkout requires a catalog_ref, and a catalog_ref
+          # reintroduces exactly the ref-skew class that
+          # tests/test_reusable_ref_resolution.sh asserts this definition is
+          # free of. reusable-publish-issue.yml carries the same duplication for
+          # the same reason.
+          not_published() {
+            {
+              echo "### ${{ inputs.agent }}-dr issue comment publisher"
+              echo
+              echo "- outcome: \`not-published\`"
+              echo "- reason: $1"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "not-published: $1" >&2
+            exit 1
+          }
+          # Every rejection below happens before any GitHub call, which is what
+          # makes `not-published` mean "nothing exists, retrying is safe".
+          [[ -n "$ISSUE_NUMBER" ]] || not_published "issue_number is required"
+          [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]] || not_published "issue_number must be a positive integer, got: $ISSUE_NUMBER"
+          [[ -n "$BODY" ]] || not_published "body is required"
+
+          # The author of the HOST issue is deliberately not checked. The issue
+          # publisher verifies it before a PATCH because editing someone else's
+          # issue would be wrong; commenting on someone else's issue is the
+          # ordinary case, and requiring App authorship of the host would invent
+          # a restriction the publication routing contract does not ask for.
+          # The authorship that matters here is the comment's own, verified
+          # below.
+          jq -n --arg body "$BODY" '{body: $body}' > comment.json
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments" \
+            --input comment.json > created-comment.json
+
+          # The mutation has happened. Emit the resource identifier before any
+          # verification runs, so a red job is never read as "nothing was
+          # published" -- the dr-agents#258 lesson, where a job exited 1 over a
+          # comment that was already public.
+          comment_id="$(jq -r '.id' created-comment.json)"
+          comment_url="$(jq -r '.html_url' created-comment.json)"
+          {
+            echo "### ${{ inputs.agent }}-dr issue comment publisher"
+            echo
+            echo "- resource: [comment on #${ISSUE_NUMBER}](${comment_url})"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Deliberately not exported as a job output. Nothing consumes one: the
+          # smoke reaper finds this comment by author and age rather than by a
+          # threaded identifier, which is what makes it able to clean up after a
+          # run that died before it could report anything.
+
+          actual_author="$(jq -r '.user.login' created-comment.json)"
+          if [[ "$actual_author" != "$EXPECTED_AUTHOR" ]]; then
+            {
+              echo "- outcome: \`published-unverified\`"
+              echo "- expected author \`${EXPECTED_AUTHOR}\`, got \`${actual_author}\`"
+              echo
+              echo "The comment **was published**. Do not republish it, and do not"
+              echo "publish it again under another identity. Inspect the resource above"
+              echo "and correct the attribution in place."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "published-unverified: comment ${comment_id} exists with author ${actual_author}; do not republish" >&2
+            exit 1
+          fi
+          echo "- outcome: \`published-ok\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Created and verified comment ${comment_id}: ${comment_url}"

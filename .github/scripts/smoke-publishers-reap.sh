@@ -64,6 +64,42 @@ while IFS= read -r ref; do
 done < <(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/heads/${prefix}" --paginate \
   --jq '.[].ref' 2>/dev/null || true)
 
+# Delete the smoke comments left on the permanent target issues.
+#
+# This is what makes the issue-comment route (dr-agents#269) safe to smoke-test
+# without a disposable target. The original design note assumed an App cannot
+# delete a comment the way it cannot delete an issue -- that is wrong, and
+# measuring it changed the design. `DELETE /repos/{o}/{r}/issues/comments/{id}`
+# requires only `Issues: write`, the same permission the publisher already holds
+# to create the comment. An issue really is undeletable by an App; a comment on
+# one is not.
+#
+# So the smoke run comments on the permanent `smoke-target` issue and this sweep
+# removes it, with no second disposable target and no accumulation. Comments are
+# matched by author and age rather than by an identifier threaded out of the
+# publisher job, for the same reason the branch sweep is: a run that dies before
+# it can report anything still gets cleaned up by the next run.
+readonly smoke_label="${SMOKE_TARGET_LABEL:-smoke-target}"
+while IFS= read -r issue_number; do
+  [[ -n "${issue_number:-}" ]] || continue
+  while IFS=$'\t' read -r comment_id created_at author; do
+    [[ -n "${comment_id:-}" ]] || continue
+    if [[ "$created_at" > "$threshold" ]]; then
+      echo "skipping comment ${comment_id} on #${issue_number}: newer than the stale threshold"
+      continue
+    fi
+    if gh api --method DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" >/dev/null 2>&1; then
+      echo "deleted stale smoke comment ${comment_id} by ${author} on #${issue_number}"
+    else
+      echo "could not delete comment ${comment_id} on #${issue_number}" >&2
+      stranded+=("comment ${comment_id} on issue #${issue_number}")
+    fi
+  done < <(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/comments" --paginate \
+    --jq '.[] | select(.user.login | endswith("-dr[bot]")) | [.id, .created_at, .user.login] | @tsv' 2>/dev/null || true)
+done < <(gh api "repos/${GITHUB_REPOSITORY}/issues" --paginate \
+  -f "labels=${smoke_label}" -f state=all \
+  --jq '.[].number' 2>/dev/null || true)
+
 if (( ${#stranded[@]} > 0 )); then
   summary "### Smoke resources left behind"
   summary ""

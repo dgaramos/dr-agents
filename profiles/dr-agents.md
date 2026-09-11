@@ -105,6 +105,7 @@ requested mode, return publication-ready text as `not published`.
 - `reply`: `.github/workflows/publish-cody-reply.yml`
 - `resolve-thread`: `.github/workflows/publish-cody-resolve.yml`
 - `create-issue`: `.github/workflows/publish-cody-issue.yml`
+- `comment-issue`: `.github/workflows/publish-cody-issue-comment.yml`
 
 The review publisher accepts a reviewed head SHA plus an optional review body,
 inline findings, thread replies, and thread resolutions. A profile that lacks one of those modes
@@ -114,6 +115,13 @@ Cody DR App is inactive.
 Issue creation is dispatched with a title, Markdown body, and optional labels,
 assignees, and milestone number. The workflow must verify the created author is
 `cody-dr[bot]`; a different author is a failed publication, not a fallback.
+
+Issue commenting is dispatched with the target issue number and a Markdown body,
+and verifies the comment's own author. It deliberately does not verify the host
+issue's author: commenting on another account's issue is the ordinary case. Use
+this route for evidence, status, and summary comments; a personal account is
+correct here only under the routing contract's proven-unavailable condition,
+never because the operation is missing.
 
 ## Explicit review requests
 
@@ -147,6 +155,7 @@ whether they block merging is decided by a human reviewer.
 - `reply`: `.github/workflows/publish-claudio-reply.yml`
 - `resolve-thread`: `.github/workflows/publish-claudio-resolve.yml`
 - `create-issue`: `.github/workflows/publish-claudio-issue.yml`
+- `comment-issue`: `.github/workflows/publish-claudio-issue-comment.yml`
 
 The review publisher accepts a reviewed head SHA plus an optional review body and
 inline findings. The dedicated thread publishers verify that the GraphQL review-thread
@@ -157,6 +166,9 @@ Claudio DR App.
 
 Issue creation follows the same inputs and verification requirement, with
 `claudio-dr[bot]` as the expected author.
+
+Issue commenting follows the same shape, with `claudio-dr[bot]` as the expected
+author of the comment.
 
 ## Pull request creation
 

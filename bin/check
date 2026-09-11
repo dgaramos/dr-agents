@@ -38,7 +38,10 @@ readonly required_paths=(
   ".github/workflows/ci.yml"
   ".github/workflows/release.yml"
   ".github/workflows/publish-cody-issue.yml"
+  ".github/workflows/publish-cody-issue-comment.yml"
   ".github/workflows/publish-claudio-issue.yml"
+  ".github/workflows/publish-claudio-issue-comment.yml"
+  ".github/workflows/reusable-publish-issue-comment.yml"
   ".github/workflows/publish-cody-review.yml"
   ".github/workflows/publish-cody-reply.yml"
   ".github/workflows/publish-cody-resolve.yml"
@@ -72,6 +75,7 @@ readonly required_paths=(
   ".github/scripts/smoke-find-issue-target.sh"
   "tests/test_smoke_find_issue_target.sh"
   "tests/test_stub_version_guard.sh"
+  "tests/test_publish_issue_comment.sh"
   "core/pr-review/SKILL.md"
   "core/pr-review/references/review-contract.md"
   "core/pr-review/references/reporting.md"
@@ -183,11 +187,13 @@ readonly required_paths=(
   "profiles/example-project.md"
   "examples/.gitkeep"
   "plugins/claudio-dr/workflows/publish-claudio-issue.yml"
+  "plugins/claudio-dr/workflows/publish-claudio-issue-comment.yml"
   "plugins/claudio-dr/workflows/publish-claudio-pr-metadata.yml"
   "plugins/claudio-dr/workflows/publish-claudio-review.yml"
   "plugins/claudio-dr/workflows/publish-claudio-reply.yml"
   "plugins/claudio-dr/workflows/publish-claudio-resolve.yml"
   "plugins/cody-dr/workflows/publish-cody-issue.yml"
+  "plugins/cody-dr/workflows/publish-cody-issue-comment.yml"
   "plugins/cody-dr/workflows/publish-cody-pr-metadata.yml"
   "plugins/cody-dr/workflows/publish-cody-review.yml"
   "plugins/cody-dr/workflows/publish-cody-reply.yml"
@@ -648,6 +654,9 @@ bash tests/test_reusable_ref_resolution.sh
 # six minimum literals in agreement and each stub's `stub_version:` equal to its
 # own version marker, so they live in one place rather than half here.
 bash tests/test_stub_version_guard.sh
+# The seventh publisher route (dr-agents#269). Executes the shipped script
+# against a fake gh, including the dr-agents#258 ordering property.
+bash tests/test_publish_issue_comment.sh
 tests/test_discover_project_profile.sh
 tests/test_plugin_core_bundles.sh
 tests/test_helper_agents.sh
