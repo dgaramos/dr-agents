@@ -102,6 +102,13 @@ jobs:
           AGENT: ${{ steps.plan.outputs.agent }}
         run: |
           set -euo pipefail
+          # The branch switch below replaces the working tree with smoke-base,
+          # branched before this script existed. Discovery only calls the API,
+          # so keep the script outside the tree instead of coupling it to the
+          # branch contents.
+          finder="${RUNNER_TEMP}/smoke-find-issue-target.sh"
+          cp .github/scripts/smoke-find-issue-target.sh "$finder"
+
           # The smoke pull request targets a permanent `smoke-base` branch
           # rather than main. Two concrete reasons: ci.yml triggers only on
           # pull requests to main, so this costs no CI run; and bin/check's
@@ -136,7 +143,7 @@ jobs:
           # every later run the update path. Nothing is bootstrapped by hand,
           # and the issue is authored by the App -- which is what discovery by
           # author requires in the first place.
-          issue_number="$(bash .github/scripts/smoke-find-issue-target.sh)"
+          issue_number="$(bash "$finder")"
           if [[ -z "$issue_number" ]]; then
             echo "no smoke-target issue authored by ${AGENT}-dr[bot] yet; the issue publisher will create it"
             echo "- issue target: to be created by this run" >> "$GITHUB_STEP_SUMMARY"
