@@ -68,7 +68,7 @@ jobs:
         # when a later step fails. The catalog ref names what the caller asked
         # for; this names what actually executed, which is what distinguishes
         # the definition before a tag promotion from the one after it. Kept in
-        # agreement across all six definitions by bin/check (dr-agents#260).
+        # agreement across all seven definitions by bin/check (dr-agents#260).
         env:
           STUB_VERSION: ${{ inputs.stub_version }}
         run: |
@@ -88,13 +88,14 @@ jobs:
           # *current* catalog version would fire on every routine version bump,
           # in consumers that are perfectly correct, and a guard that alarms
           # when all is well is ignored within two releases -- reintroducing the
-          # silence by another route. And reusable-publish-issue.yml performs no
-          # checkout and takes no catalog_ref, a property
+          # silence by another route. And the two self-contained definitions,
+          # reusable-publish-issue.yml and reusable-publish-issue-comment.yml,
+          # perform no checkout and take no catalog_ref, a property
           # tests/test_reusable_ref_resolution.sh asserts; a literal needs no
-          # staged catalog, so this needs no exception for it.
+          # staged catalog, so those need no exception for it.
           #
           # Bump it ONLY when a definition gains an input a stub must pass. All
-          # six must agree; bin/check enforces that, because a partial bump
+          # seven must agree; bin/check enforces that, because a partial bump
           # would make the guard lie about what it requires.
           minimum_stub_version="0.1.31"
           echo "minimum stub version: ${minimum_stub_version}"

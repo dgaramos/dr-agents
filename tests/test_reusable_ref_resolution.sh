@@ -16,10 +16,14 @@ readonly root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
 readonly checkout_sha="11d5960a326750d5838078e36cf38b85af677262"
-# The publishers that stage catalog files. reusable-publish-issue.yml is
-# deliberately absent: it is self-contained and needs no catalog checkout, so a
-# required catalog_ref there would be an input nothing reads.
+# The publishers that stage catalog files. Two definitions are deliberately
+# absent: they are self-contained and need no catalog checkout, so a required
+# catalog_ref there would be an input nothing reads.
 readonly staging_modes=(pr-metadata pr reply resolve review)
+# The other side of that split, asserted rather than merely implied by absence.
+# Listing the staging modes alone would let a new self-contained definition grow
+# a checkout without any test noticing (dr-agents#269).
+readonly self_contained_modes=(issue issue-comment)
 
 failures=0
 fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
@@ -62,6 +66,39 @@ for mode in "${staging_modes[@]}"; do
   fi
   if ! grep -q 'persist-credentials: false' "$wf"; then
     fail "B: $wf checkout does not set persist-credentials: false"
+  fi
+done
+
+# --- B2. each self-contained definition stays self-contained ---------------
+#
+# The absence of a checkout is a property worth a test, not an accident. It is
+# what lets these two definitions take no catalog_ref at all, which removes the
+# entire class of ref skew this file exists to guard.
+for mode in "${self_contained_modes[@]}"; do
+  wf=".github/workflows/reusable-publish-${mode}.yml"
+  [[ -f "$wf" ]] || { fail "B2: missing $wf"; continue; }
+
+  if grep -q 'actions/checkout' "$wf"; then
+    fail "B2: $wf performs a checkout; it is declared self-contained"
+  else
+    pass "B2: $wf performs no checkout"
+  fi
+  # Asserted against the parsed input list, not against the word. Both of these
+  # definitions explain in a comment why they take no catalog_ref, and a grep
+  # for the bare word calls that explanation a violation.
+  if ruby -ryaml -e '
+    wf = YAML.safe_load(File.read(ARGV[0]), aliases: true)
+    on = wf["on"] || wf[true]
+    exit((on["workflow_call"]["inputs"] || {}).key?("catalog_ref") ? 1 : 0)
+  ' "$wf"; then
+    pass "B2: $wf declares no catalog_ref input"
+  else
+    fail "B2: $wf declares a catalog_ref input; it stages no catalog files"
+  fi
+  if grep -q 'inputs\.catalog_ref' "$wf"; then
+    fail "B2: $wf reads inputs.catalog_ref"
+  else
+    pass "B2: $wf reads no catalog_ref"
   fi
 done
 
