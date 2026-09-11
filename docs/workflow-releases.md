@@ -111,6 +111,62 @@ some of the six: a marker that disagrees with itself is worse than none.
 This is the same norm the migration recorded for publication outcomes — a run
 states what happened rather than leaving it to be inferred from an exit code.
 
+## The smoke test
+
+`.github/workflows/smoke-publishers.yml` dispatches the publishers for real
+against a disposable target in this repository and asserts on what GitHub holds
+afterwards. It exists because every defect the migration put into production was
+correct as text and wrong as executed; `bin/check` caught none of them, and
+three surfaced by accident (dr-agents#267).
+
+It asserts **the resource and its author**, not the job's exit code. In
+dr-agents#258 the reply publisher posted its comment and then exited 1, so exit
+code and reality disagreed; a check reading only the exit status calls that a
+clean failure and leaves a stray comment behind. The smoke test fails that case
+*naming* the publisher whose resource exists over a red job.
+
+It does not read the typed publication outcome from the step summary, because
+that vocabulary currently exists in exactly one of the six definitions —
+`reusable-publish-issue.yml`. The other five write only the release marker and
+the catalog ref to the summary, which is why the `GITHUB_STEP_SUMMARY`
+assertion in `bin/check` passes over all six without noticing. Extending the
+vocabulary to the other five is tracked separately; the smoke test lands first
+so that the detector is proven against the publishers as they are before it is
+used to certify a change to them.
+
+### Where it sits
+
+- **push to `main`** — one agent, the full six-publisher chain. This is the
+  automated counterpart of step 3 below, which until now rested on an operator
+  remembering to look.
+- **`workflow_dispatch`** — both agents, and additionally a job pinned at
+  `@workflows-v1`, which is the only way to observe that the tag resolves and
+  serves the definitions consumers call. `uses:` accepts no expressions, so the
+  ref under test cannot be an input; it is a separate, statically pinned job.
+- **push of the `workflows-v1` tag** — both agents, immediately after a
+  promotion.
+
+Force-moving an existing tag does fire a `push` event, and the run executes at
+the tag's new commit. That was measured with a throwaway probe tag rather than
+assumed. One consequence follows from it: a tag-triggered run executes the
+workflow file **as it exists at the tag**, so this trigger stays inert until a
+promotion first carries the file onto `workflows-v1`.
+
+### What it leaves behind
+
+The disposable pull request targets a permanent `smoke-base` branch, never
+`main`, so it costs no CI run and is not subject to the adapter co-author rule.
+The issue publisher updates one permanent `smoke-target` issue per agent rather
+than creating one per run, because an App cannot delete an issue.
+
+Cleanup runs at the end of the run, and a reaper runs at the **start** of every
+run as well. The second is what matters: a cleanup job cannot run for a run that
+was cancelled or whose runner died. If a run dies between pushing the branch and
+cleaning up, an orphaned `smoke/publishers-<run_id>` branch and an open pull
+request against `smoke-base` survive until the next run sweeps them. Anything
+the reaper cannot remove is named in the run output and the step summary rather
+than failing the run, so a stranded leftover never masks the dispatch result.
+
 ## Promotion procedure
 
 1. Merge the change to `main`.
@@ -120,7 +176,9 @@ states what happened rather than leaving it to be inferred from an exit code.
    `.github/workflows/` must pin `@main` and the twelve templates under
    `plugins/*/workflows/` must pin `@workflows-v1` — so the two refs cannot be
    swapped by accident.
-3. Confirm the publishers of this repository ran green.
+3. Confirm the publishers of this repository ran green. The push to `main` in
+   step 1 runs the smoke test automatically; read its verdict rather than
+   inferring one from the absence of red.
 4. Move the tag:
 
    ```bash

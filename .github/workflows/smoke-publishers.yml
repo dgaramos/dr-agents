@@ -1,0 +1,349 @@
+# Real-dispatch smoke test for the central publisher definitions (dr-agents#267).
+#
+# Every defect the publisher migration put into production was correct as text
+# and wrong as executed. Nothing static caught any of them. This workflow
+# dispatches the publishers against a disposable target in this repository and
+# asserts on what GitHub actually holds afterwards.
+#
+# Deliberately NOT triggered by `pull_request`. This repository is public and
+# this workflow needs the App private keys; a fork pull request trigger would
+# hand them to anyone who opened one.
+#
+# One agent per run, by construction rather than by preference: a matrix job's
+# outputs are not addressable per entry, and two agents publishing from one head
+# branch cannot both open a pull request against the same base. A run that wants
+# both dispatches the second itself, at the end.
+name: Publisher smoke test
+
+on:
+  push:
+    branches: [main]
+    tags: [workflows-v1]
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: Dispatch one agent, or fan out to both.
+        required: false
+        default: both
+        type: choice
+        options: [both, claudio, cody]
+
+# The permanent per-agent issue targets are shared state, and a cancelled run
+# skips its cleanup job. Queue instead of cancelling. This also serializes the
+# fan-out run behind the run that requested it.
+concurrency:
+  group: publisher-smoke
+  cancel-in-progress: false
+
+permissions: { contents: read }
+
+env:
+  # Derived identically in every job, so nothing has to be threaded through a
+  # job output that a later job might read before it exists.
+  SMOKE_BRANCH: smoke/publishers-${{ github.run_id }}
+  SMOKE_BASE: smoke-base
+
+jobs:
+  setup:
+    name: Stage the disposable target
+    runs-on: ubuntu-latest
+    permissions: { contents: write, pull-requests: write, issues: read }
+    outputs:
+      agent: ${{ steps.plan.outputs.agent }}
+      fanout: ${{ steps.plan.outputs.fanout }}
+      head_sha: ${{ steps.stage.outputs.head_sha }}
+      issue_number: ${{ steps.stage.outputs.issue_number }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { fetch-depth: 0 }
+
+      - name: Choose the agent
+        id: plan
+        env:
+          # A full six-publisher chain for both agents on every push to main is
+          # more Actions minutes than dogfooding needs. One agent proves the
+          # definitions execute; both matter where the promotion evidence is
+          # produced -- a dispatch, or the tag itself.
+          REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.agents || (startsWith(github.ref, 'refs/tags/') && 'both' || 'claudio') }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED" in
+            both)    agent=claudio; fanout=cody ;;
+            claudio) agent=claudio; fanout='' ;;
+            cody)    agent=cody;    fanout='' ;;
+            *) echo "unsupported agent selection: $REQUESTED" >&2; exit 1 ;;
+          esac
+          echo "agent=${agent}" >> "$GITHUB_OUTPUT"
+          echo "fanout=${fanout}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Publisher smoke test"
+            echo
+            echo "- agent: \`${agent}\`"
+            echo "- ref under test: \`${GITHUB_REF}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sweep anything a previous run left behind
+        # Runs before staging, not only as cleanup afterwards. A cleanup job
+        # cannot run for a run that was cancelled or whose runner died, and
+        # those are exactly the runs that leave litter (AC-04).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SMOKE_KEEP_BRANCH: ${{ env.SMOKE_BRANCH }}
+        run: bash .github/scripts/smoke-publishers-reap.sh
+
+      - name: Push the disposable branch
+        id: stage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AGENT: ${{ steps.plan.outputs.agent }}
+        run: |
+          set -euo pipefail
+          # The smoke pull request targets a permanent `smoke-base` branch
+          # rather than main. Two concrete reasons: ci.yml triggers only on
+          # pull requests to main, so this costs no CI run; and bin/check's
+          # adapter co-author rule would go red on a synthetic commit.
+          if ! git ls-remote --exit-code --heads origin "$SMOKE_BASE" >/dev/null 2>&1; then
+            git push origin "HEAD:refs/heads/${SMOKE_BASE}"
+            echo "created the permanent ${SMOKE_BASE} branch"
+          fi
+          git fetch -q origin "$SMOKE_BASE"
+          git checkout -q -B "$SMOKE_BRANCH" "origin/${SMOKE_BASE}"
+          mkdir -p .smoke
+          # The review publisher comments inline on this file, so it has to be
+          # part of the pull request diff.
+          date -u +%Y-%m-%dT%H:%M:%SZ > .smoke/target.txt
+          git add .smoke/target.txt
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -qm "chore(smoke): disposable target for run ${GITHUB_RUN_ID}"
+          git push -q origin "$SMOKE_BRANCH"
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+          # The issue publisher reuses one permanent target per agent instead
+          # of creating an issue per run: an App cannot delete an issue, so
+          # every run would leave one behind forever. Its update path verifies
+          # the existing author is the App, so this exercises more of the
+          # definition than creation does.
+          issue_number="$(gh issue list --label smoke-target --state all --limit 50 \
+            --json number,author \
+            --jq "[.[] | select(.author.login == \"${AGENT}-dr\")] | first | .number // empty")"
+          if [[ -z "$issue_number" ]]; then
+            echo "no smoke-target issue authored by ${AGENT}-dr[bot]" >&2
+            echo "bootstrap it once by dispatching publish-${AGENT}-issue.yml with the label smoke-target" >&2
+            exit 1
+          fi
+          echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
+
+  # --- The six publishers, dispatched exactly as a consumer dispatches them ---
+
+  publish-issue:
+    name: Dispatch issue
+    needs: setup
+    uses: dgaramos/dr-agents/.github/workflows/reusable-publish-issue.yml@main
+    with:
+      agent: ${{ needs.setup.outputs.agent }}
+      client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+      issue_number: ${{ needs.setup.outputs.issue_number }}
+      title: Publisher smoke target (${{ needs.setup.outputs.agent }})
+      body: Updated by the publisher smoke test, run ${{ github.run_id }}.
+    secrets:
+      app_private_key: ${{ secrets[format('{0}_DR_PRIVATE_KEY', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+
+  publish-pr:
+    name: Dispatch pr
+    needs: setup
+    uses: dgaramos/dr-agents/.github/workflows/reusable-publish-pr.yml@main
+    with:
+      catalog_ref: main
+      agent: ${{ needs.setup.outputs.agent }}
+      client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+      title: "chore(smoke): publisher smoke test ${{ github.run_id }}"
+      body: Disposable target created by the publisher smoke test. Removed automatically.
+      head_branch: smoke/publishers-${{ github.run_id }}
+      base_branch: smoke-base
+    secrets:
+      app_private_key: ${{ secrets[format('{0}_DR_PRIVATE_KEY', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+
+  locate-pr:
+    name: Locate the staged pull request
+    needs: [setup, publish-pr]
+    if: always() && needs.publish-pr.result == 'success'
+    runs-on: ubuntu-latest
+    permissions: { pull-requests: read }
+    outputs:
+      pr_number: ${{ steps.find.outputs.pr_number }}
+    steps:
+      - name: Read the pull request the publisher created
+        id: find
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pr_number="$(gh api "repos/${GITHUB_REPOSITORY}/pulls" --paginate \
+            --jq ".[] | select(.head.ref == \"${SMOKE_BRANCH}\") | .number" | head -1)"
+          [[ -n "$pr_number" ]] || { echo "no pull request for ${SMOKE_BRANCH}" >&2; exit 1; }
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+
+  publish-pr-metadata:
+    name: Dispatch pr-metadata
+    needs: [setup, locate-pr]
+    if: always() && needs.locate-pr.result == 'success'
+    uses: dgaramos/dr-agents/.github/workflows/reusable-publish-pr-metadata.yml@main
+    with:
+      catalog_ref: main
+      agent: ${{ needs.setup.outputs.agent }}
+      client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+      pr_number: ${{ needs.locate-pr.outputs.pr_number }}
+      base_branch: smoke-base
+      labels_json: '["smoke-target"]'
+    secrets:
+      app_private_key: ${{ secrets[format('{0}_DR_PRIVATE_KEY', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+
+  publish-review:
+    name: Dispatch review
+    needs: [setup, locate-pr, publish-pr-metadata]
+    if: always() && needs.locate-pr.result == 'success'
+    uses: dgaramos/dr-agents/.github/workflows/reusable-publish-review.yml@main
+    with:
+      catalog_ref: main
+      agent: ${{ needs.setup.outputs.agent }}
+      client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+      pr_number: ${{ needs.locate-pr.outputs.pr_number }}
+      # COMMENT, not APPROVE: GitHub refuses an approval of your own pull
+      # request, and the App authored this one.
+      event: COMMENT
+      review_body: Publisher smoke test review.
+      reviewed_head_sha: ${{ needs.setup.outputs.head_sha }}
+      inline_comments_json: '[{"path":".smoke/target.txt","line":1,"body":"Smoke finding: this comment creates the thread the reply and resolve publishers act on."}]'
+    secrets:
+      app_private_key: ${{ secrets[format('{0}_DR_PRIVATE_KEY', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+
+  locate-thread:
+    name: Locate the review thread
+    needs: [setup, locate-pr, publish-review]
+    if: always() && needs.publish-review.result == 'success'
+    runs-on: ubuntu-latest
+    permissions: { pull-requests: read }
+    outputs:
+      thread_id: ${{ steps.find.outputs.thread_id }}
+    steps:
+      - name: Read the thread the review created
+        id: find
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.locate-pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          thread_id="$(gh api graphql \
+            -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 1) { nodes { id } } } } }' \
+            -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY##*/}" -F number="$PR_NUMBER" \
+            --jq '.data.repository.pullRequest.reviewThreads.nodes[0].id')"
+          [[ -n "$thread_id" && "$thread_id" != "null" ]] || { echo "the review created no thread" >&2; exit 1; }
+          echo "thread_id=${thread_id}" >> "$GITHUB_OUTPUT"
+
+  publish-reply:
+    name: Dispatch reply
+    needs: [setup, locate-pr, locate-thread]
+    if: always() && needs.locate-thread.result == 'success'
+    uses: dgaramos/dr-agents/.github/workflows/reusable-publish-reply.yml@main
+    with:
+      catalog_ref: main
+      agent: ${{ needs.setup.outputs.agent }}
+      client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+      pr_number: ${{ needs.locate-pr.outputs.pr_number }}
+      thread_id: ${{ needs.locate-thread.outputs.thread_id }}
+      body: Publisher smoke test reply.
+    secrets:
+      app_private_key: ${{ secrets[format('{0}_DR_PRIVATE_KEY', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+
+  publish-resolve:
+    name: Dispatch resolve
+    needs: [setup, locate-pr, locate-thread, publish-reply]
+    if: always() && needs.locate-thread.result == 'success'
+    uses: dgaramos/dr-agents/.github/workflows/reusable-publish-resolve.yml@main
+    with:
+      catalog_ref: main
+      agent: ${{ needs.setup.outputs.agent }}
+      client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+      pr_number: ${{ needs.locate-pr.outputs.pr_number }}
+      thread_id: ${{ needs.locate-thread.outputs.thread_id }}
+    secrets:
+      app_private_key: ${{ secrets[format('{0}_DR_PRIVATE_KEY', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+
+  # --- The tag, which is the ref consumers actually call --------------------
+
+  publish-issue-at-tag:
+    name: Dispatch issue at workflows-v1
+    # `uses:` accepts no expressions, so the ref under test cannot be an input.
+    # Proving the tag serves consumers therefore needs its own statically
+    # pinned job (AC-05). The issue publisher is the cheapest proof: it is
+    # self-contained and needs no staging.
+    needs: setup
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+    uses: dgaramos/dr-agents/.github/workflows/reusable-publish-issue.yml@workflows-v1
+    with:
+      agent: ${{ needs.setup.outputs.agent }}
+      client_id: ${{ vars[format('{0}_DR_CLIENT_ID', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+      issue_number: ${{ needs.setup.outputs.issue_number }}
+      title: Publisher smoke target (${{ needs.setup.outputs.agent }})
+      body: Updated by the publisher smoke test at workflows-v1, run ${{ github.run_id }}.
+    secrets:
+      app_private_key: ${{ secrets[format('{0}_DR_PRIVATE_KEY', needs.setup.outputs.agent == 'claudio' && 'CLAUDIO' || 'CODY')] }}
+
+  # --- The verdict ----------------------------------------------------------
+
+  assert:
+    name: Assert what was published
+    needs: [setup, locate-pr, locate-thread, publish-issue, publish-pr, publish-pr-metadata, publish-review, publish-reply, publish-resolve]
+    if: always() && needs.setup.result == 'success'
+    runs-on: ubuntu-latest
+    permissions: { contents: read, pull-requests: read, issues: read }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Compare each job's conclusion against what GitHub holds
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_AUTHOR: ${{ needs.setup.outputs.agent }}-dr[bot]
+          CHECKS_JSON: >-
+            [
+              {"publisher":"issue","kind":"issue","ref":"${{ needs.setup.outputs.issue_number }}","job_result":"${{ needs.publish-issue.result }}"},
+              {"publisher":"pr","kind":"pr","ref":"${{ needs.locate-pr.outputs.pr_number }}","job_result":"${{ needs.publish-pr.result }}"},
+              {"publisher":"pr-metadata","kind":"pr-labels","ref":"${{ needs.locate-pr.outputs.pr_number }}","expect":"smoke-target","job_result":"${{ needs.publish-pr-metadata.result }}"},
+              {"publisher":"review","kind":"review","ref":"${{ needs.locate-pr.outputs.pr_number }}","job_result":"${{ needs.publish-review.result }}"},
+              {"publisher":"reply","kind":"reply","ref":"${{ needs.locate-pr.outputs.pr_number }}","job_result":"${{ needs.publish-reply.result }}"},
+              {"publisher":"resolve","kind":"resolve","ref":"${{ needs.locate-thread.outputs.thread_id }}","expect":"true","job_result":"${{ needs.publish-resolve.result }}"}
+            ]
+        run: bash .github/scripts/smoke-publishers-assert.sh
+
+  cleanup:
+    name: Remove the disposable target
+    needs: [setup, assert]
+    if: always() && needs.setup.result == 'success'
+    runs-on: ubuntu-latest
+    permissions: { contents: write, pull-requests: write }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Close the pull request and delete the branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Nothing is spared: this is the end of the run that created it.
+          SMOKE_MAX_AGE_SECONDS: '0'
+        run: bash .github/scripts/smoke-publishers-reap.sh
+
+  fanout:
+    name: Dispatch the second agent
+    needs: [setup, cleanup]
+    if: always() && needs.setup.outputs.fanout != ''
+    runs-on: ubuntu-latest
+    permissions: { actions: write }
+    steps:
+      - name: Start a run for the other agent
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OTHER: ${{ needs.setup.outputs.fanout }}
+        run: |
+          set -euo pipefail
+          # Queued behind this run by the concurrency group, so the two never
+          # contend for the shared issue targets.
+          gh workflow run smoke-publishers.yml --ref main -f "agents=${OTHER}"
+          echo "- fan-out dispatched for \`${OTHER}\`" >> "$GITHUB_STEP_SUMMARY"
