@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/publication-outcome.sh"
+outcome_heading "${EXPECTED_AUTHOR:-publisher} review publisher"
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
@@ -12,22 +14,22 @@ set -euo pipefail
 readonly inline_comments_json="${INLINE_COMMENTS_JSON:-[]}"
 readonly replies_json="${REPLIES_JSON:-[]}"
 readonly resolve_thread_ids_json="${RESOLVE_THREAD_IDS_JSON:-[]}"
-[[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "pr_number must be a positive integer" >&2; exit 1; }
-[[ "$REVIEWED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "reviewed_head_sha must be a full SHA" >&2; exit 1; }
-[[ "$PUBLISHER_APP_SLUG" == "${EXPECTED_AUTHOR%\[bot\]}" ]] || { echo "unexpected authenticated app" >&2; exit 1; }
-case "$REVIEW_EVENT" in APPROVE) expected_state=APPROVED ;; COMMENT) expected_state=COMMENTED ;; REQUEST_CHANGES) expected_state=CHANGES_REQUESTED ;; *) echo "unsupported review event" >&2; exit 1 ;; esac
-jq -e 'type == "array" and all(.[]; type == "object" and (.path | type == "string" and length > 0) and (.line | type == "number" and floor == . and . > 0) and (.body | type == "string" and length > 0))' <<<"$inline_comments_json" >/dev/null || { echo "invalid inline_comments_json" >&2; exit 1; }
-jq -e 'type == "array" and all(.[]; type == "object" and (.comment_id | type == "number" and floor == . and . > 0) and (.body | type == "string" and length > 0))' <<<"$replies_json" >/dev/null || { echo "invalid replies_json" >&2; exit 1; }
-jq -e 'type == "array" and all(.[]; type == "string" and length > 0)' <<<"$resolve_thread_ids_json" >/dev/null || { echo "invalid resolve_thread_ids_json" >&2; exit 1; }
+[[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || outcome_not_published "pr_number must be a positive integer"
+[[ "$REVIEWED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || outcome_not_published "reviewed_head_sha must be a full SHA"
+[[ "$PUBLISHER_APP_SLUG" == "${EXPECTED_AUTHOR%\[bot\]}" ]] || outcome_not_published "unexpected authenticated app"
+case "$REVIEW_EVENT" in APPROVE) expected_state=APPROVED ;; COMMENT) expected_state=COMMENTED ;; REQUEST_CHANGES) expected_state=CHANGES_REQUESTED ;; *) outcome_not_published "unsupported review event" ;; esac
+jq -e 'type == "array" and all(.[]; type == "object" and (.path | type == "string" and length > 0) and (.line | type == "number" and floor == . and . > 0) and (.body | type == "string" and length > 0))' <<<"$inline_comments_json" >/dev/null || outcome_not_published "invalid inline_comments_json"
+jq -e 'type == "array" and all(.[]; type == "object" and (.comment_id | type == "number" and floor == . and . > 0) and (.body | type == "string" and length > 0))' <<<"$replies_json" >/dev/null || outcome_not_published "invalid replies_json"
+jq -e 'type == "array" and all(.[]; type == "string" and length > 0)' <<<"$resolve_thread_ids_json" >/dev/null || outcome_not_published "invalid resolve_thread_ids_json"
 readonly expected_pr_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}"
-[[ "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .head.sha)" == "$REVIEWED_HEAD_SHA" ]] || { echo "PR head changed since review" >&2; exit 1; }
+[[ "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .head.sha)" == "$REVIEWED_HEAD_SHA" ]] || outcome_not_published "PR head changed since review"
 publish_review=false
 if [[ -n "${REVIEW_BODY:-}" ]] || [[ "$(jq length <<<"$inline_comments_json")" -gt 0 ]]; then publish_review=true; fi
-[[ "$publish_review" == true || "$(jq length <<<"$replies_json")" -gt 0 || "$(jq length <<<"$resolve_thread_ids_json")" -gt 0 ]] || { echo "provide a review body, inline finding, reply, or resolution" >&2; exit 1; }
+[[ "$publish_review" == true || "$(jq length <<<"$replies_json")" -gt 0 || "$(jq length <<<"$resolve_thread_ids_json")" -gt 0 ]] || outcome_not_published "provide a review body, inline finding, reply, or resolution"
 while IFS= read -r reply; do
   comment_id="$(jq -r '.comment_id' <<<"$reply")"
-  [[ "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/comments/${comment_id}" --jq .pull_request_url)" == "$expected_pr_url" ]] || { echo "reply target mismatch" >&2; exit 1; }
-  [[ -z "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/comments/${comment_id}" --jq '.in_reply_to_id // empty')" ]] || { echo "reply target must be a top-level review comment" >&2; exit 1; }
+  [[ "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/comments/${comment_id}" --jq .pull_request_url)" == "$expected_pr_url" ]] || outcome_not_published "reply target mismatch"
+  [[ -z "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/comments/${comment_id}" --jq '.in_reply_to_id // empty')" ]] || outcome_not_published "reply target must be a top-level review comment"
 done < <(jq -c '.[]' <<<"$replies_json")
 while IFS= read -r thread_id; do
   cursor=""; found=false
@@ -39,19 +41,25 @@ while IFS= read -r thread_id; do
     [[ "$(jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage' <<<"$threads")" == true ]] || break
     cursor="$(jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor' <<<"$threads")"
   done
-  [[ "$found" == true ]] || { echo "resolution target mismatch" >&2; exit 1; }
+  [[ "$found" == true ]] || outcome_not_published "resolution target mismatch"
 done < <(jq -r '.[]' <<<"$resolve_thread_ids_json")
 if [[ "$publish_review" == true ]]; then
   jq -n --arg event "$REVIEW_EVENT" --arg body "${REVIEW_BODY:-}" --arg commit_id "$REVIEWED_HEAD_SHA" --argjson comments "$inline_comments_json" '{event: $event, body: $body, commit_id: $commit_id} + (if ($comments | length) == 0 then {} else {comments: ($comments | map({path, line, side: "RIGHT", body}))} end)' > review.json
   gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" --input review.json > created-review.json
-  [[ "$(jq -r '.user.login' created-review.json)" == "$EXPECTED_AUTHOR" ]] || { echo "unexpected review author" >&2; exit 1; }
-  [[ "$(jq -r '.pull_request_url' created-review.json)" == "$expected_pr_url" ]] || { echo "review target mismatch" >&2; exit 1; }
-  [[ "$(jq -r '.state' created-review.json)" == "$expected_state" ]] || { echo "unexpected review state" >&2; exit 1; }
+  # Mutation point 1 of 3. Named before verification, so a failure below cannot
+  # be read as "no review was posted".
+  outcome_resource "review $(jq -r '.html_url // "on #'"${PR_NUMBER}"'"' created-review.json)"
+  [[ "$(jq -r '.user.login' created-review.json)" == "$EXPECTED_AUTHOR" ]] || outcome_published_unverified "unexpected review author"
+  [[ "$(jq -r '.pull_request_url' created-review.json)" == "$expected_pr_url" ]] || outcome_published_unverified "review target mismatch"
+  [[ "$(jq -r '.state' created-review.json)" == "$expected_state" ]] || outcome_published_unverified "unexpected review state"
 fi
 while IFS= read -r reply; do
   comment_id="$(jq -r '.comment_id' <<<"$reply")"; reply_body="$(jq -r '.body' <<<"$reply")"
   gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments" -f body="$reply_body" -F in_reply_to="$comment_id" > created-reply.json
-  [[ "$(jq -r '.user.login' created-reply.json)" == "$EXPECTED_AUTHOR" ]] || { echo "unexpected reply author" >&2; exit 1; }
+  # Mutation point 2 of 3, once per reply. A later reply failing leaves the
+  # earlier ones published, which is why this is never `not-published`.
+  outcome_resource "reply $(jq -r '.html_url // "to comment '"${comment_id}"'"' created-reply.json)"
+  [[ "$(jq -r '.user.login' created-reply.json)" == "$EXPECTED_AUTHOR" ]] || outcome_published_unverified "unexpected reply author"
 done < <(jq -c '.[]' <<<"$replies_json")
 resolved_count=0
 while IFS= read -r thread_id; do
@@ -61,4 +69,12 @@ while IFS= read -r thread_id; do
     echo "warning: could not resolve thread ${thread_id} (skipped): ${resolve_out}" >&2
   fi
 done < <(jq -r '.[]' <<<"$resolve_thread_ids_json")
+# Mutation point 3 of 3. Resolution is best-effort by a deliberate earlier
+# decision: a failure here warns and the script still exits 0. So the outcome
+# stays `published-ok` -- emitting `published-unverified` on a zero exit would
+# break the invariant the issue publisher sets, where that outcome always
+# accompanies exit 1 and means "a resource exists, do not republish". The
+# explicit count is what stops a partial result from hiding behind "ok".
+outcome_note "resolutions: ${resolved_count}/$(jq length <<<"$resolve_thread_ids_json")"
+outcome_published_ok
 printf 'Publication report: review=%s inline=%s replies=%s resolutions=%s/%s\n' "$publish_review" "$(jq length <<<"$inline_comments_json")" "$(jq length <<<"$replies_json")" "$resolved_count" "$(jq length <<<"$resolve_thread_ids_json")"

@@ -67,6 +67,8 @@ readonly required_paths=(
   ".github/scripts/smoke-publishers-assert.sh"
   ".github/scripts/smoke-publishers-reap.sh"
   "tests/test_publisher_smoke.sh"
+  ".github/scripts/publication-outcome.sh"
+  "tests/test_publication_outcomes.sh"
   ".github/scripts/smoke-find-issue-target.sh"
   "tests/test_smoke_find_issue_target.sh"
   "core/pr-review/SKILL.md"
@@ -402,7 +404,7 @@ done
 # Bump it whenever a promoted change alters what a publisher does. All six
 # definitions must carry the same value; a partial bump would make the marker
 # lie, which is worse than not having one.
-readonly definition_release="2"
+readonly definition_release="3"
 readonly release_marker="publisher definition release: ${definition_release}"
 for wf in .github/workflows/reusable-publish-*.yml; do
   if ! grep -qF "$release_marker" "$wf"; then
@@ -414,6 +416,56 @@ for wf in .github/workflows/reusable-publish-*.yml; do
     echo "drift: $wf never writes to the step summary" >&2
     exit 1
   fi
+  # This assertion used to end here, and it passed over all six definitions
+  # while only one of them reported a publication outcome: the other five write
+  # the release marker and the catalog ref to the summary and nothing else, so
+  # the grep above matched something adjacent to the property it was meant to
+  # cover. That gap is what dr-agents#270 recorded.
+  #
+  # A definition reports the outcome either inline (the issue publisher) or
+  # through the script it runs, so look in both.
+  outcome_sources=("$wf")
+  while IFS= read -r helper; do
+    [[ -n "$helper" ]] || continue
+    # The agent is an input at dispatch time; check every script it can select.
+    if [[ "$helper" == *'${{ inputs.agent }}'* ]]; then
+      outcome_sources+=(".github/scripts/publish-claudio-thread-action.sh" ".github/scripts/publish-cody-thread-action.sh")
+    else
+      outcome_sources+=(".github/scripts/${helper}")
+    fi
+  done < <(sed -n 's#.*/\.dr-agents-catalog/\.github/scripts/\([a-z${}. -]*\.sh\).*#\1#p' "$wf")
+  for verdict in 'not-published' 'published-unverified' 'published-ok'; do
+    # Either the literal the summary carries, or the reporter call that emits
+    # it: the issue publisher writes the string inline, the five script-backed
+    # publishers call outcome_<verdict with underscores>.
+    call="outcome_${verdict//-/_}"
+    found=0
+    for source in "${outcome_sources[@]}"; do
+      [[ -f "$source" ]] || continue
+      if grep -qF "$verdict" "$source" || grep -qF "$call" "$source"; then found=1; break; fi
+    done
+    if [[ "$found" != 1 ]]; then
+      echo "drift: $wf reports no '${verdict}' outcome" >&2
+      echo "  checked: ${outcome_sources[*]}" >&2
+      echo "  every publisher emits the typed outcome, inline or via its script" >&2
+      exit 1
+    fi
+  done
+done
+
+# The shared reporter must define the whole vocabulary, so a caller cannot
+# silently depend on a verdict that does not exist.
+for verdict in 'not-published' 'published-unverified' 'published-ok'; do
+  grep -qF "$verdict" .github/scripts/publication-outcome.sh || {
+    echo "drift: .github/scripts/publication-outcome.sh does not define '${verdict}'" >&2
+    exit 1
+  }
+done
+for helper in publish-pr publish-pr-metadata publish-review publish-claudio-thread-action publish-cody-thread-action; do
+  grep -qF 'publication-outcome.sh' ".github/scripts/${helper}.sh" || {
+    echo "drift: .github/scripts/${helper}.sh does not source the publication outcome reporter" >&2
+    exit 1
+  }
 done
 
 # The installer must not undo the migration.
