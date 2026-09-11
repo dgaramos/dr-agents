@@ -54,6 +54,8 @@ readonly required_paths=(
   ".github/scripts/publish-pr.sh"
   "core/pr-review/references/publication-routing-contract.md"
   "core/pr-review/scripts/select-publisher.sh"
+  "core/pr-review/scripts/verify-publisher-dispatch.sh"
+  "examples/generic-publisher-dispatch-verification.md"
   "examples/generic-app-delivery.md"
   "docs/app-publishing.md"
   "plugins/cody-dr/scripts/commit.sh"
@@ -598,10 +600,16 @@ grep -qF '`review`' profiles/dr-agents.md
 grep -qF '`reply`' profiles/dr-agents.md
 grep -qF '`resolve-thread`' profiles/dr-agents.md
 grep -qF '`create-issue`' profiles/dr-agents.md
-grep -qF '`reply`: `.github/workflows/publish-claudio-reply.yml`' profiles/dr-agents.md
-grep -qF '`resolve-thread`: `.github/workflows/publish-claudio-resolve.yml`' profiles/dr-agents.md
-grep -qF '`reply`: `.github/workflows/publish-cody-reply.yml`' profiles/dr-agents.md
-grep -qF '`resolve-thread`: `.github/workflows/publish-cody-resolve.yml`' profiles/dr-agents.md
+
+# Publisher dispatch must be a path-for-path record of what is installed
+# (dr-agents#298). Four hardcoded literals used to assert this for `reply` and
+# `resolve-thread` only, and in one direction: nothing obliged the profile to
+# account for every installed publisher, so an installed-but-undeclared
+# workflow passed silently. The verifier replaces those four literals and
+# checks both directions over the whole set. The mode-name and bot-login
+# assertions above are kept because the verifier does not cover them.
+bash core/pr-review/scripts/verify-publisher-dispatch.sh \
+  profiles/dr-agents.md .github/workflows
 
 while IFS= read -r skill; do
   awk '
@@ -639,6 +647,8 @@ for script in .github/scripts/publish-cody-*.sh; do
 done
 bash -n core/profile-discovery/scripts/discover-project-profile.sh
 bash -n core/issue-workflow/scripts/apply-pr-metadata.sh
+bash -n core/pr-review/scripts/verify-publisher-dispatch.sh
+bash tests/test_verify_publisher_dispatch.sh
 tests/test_apply_pr_metadata.sh
 tests/test_publish_claudio_thread_action.sh
 tests/test_publish_cody_thread_action.sh
