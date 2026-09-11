@@ -88,4 +88,47 @@ echo "$force_output" | grep -q "installed\|updated" \
 grep -qF "pull --ff-only" "$tmp/git.log" \
   || { echo "FAIL: git pull --ff-only not called by --global --workflows" >&2; exit 1; }
 
+# ---------------------------------------------------------------------------
+# Criterion 4e — content divergence at an equal marker surfaces through update
+#
+# bin/update --workflows delegates to bin/install --workflows. That delegation
+# is one line, and it is exactly the kind of thing worth proving rather than
+# assuming: an operator updating a consumer runs this command, not bin/install,
+# so the dr-agents#282 silence has to be gone from the path they actually use.
+# ---------------------------------------------------------------------------
+rm -f "$tmp/git.log"
+rm -rf "$fake_repo/.github"
+(cd "$fake_repo" && run_update --global --workflows) >/dev/null
+
+readonly update_mismatch_stub="$fake_repo/.github/workflows/publish-cody-resolve.yml"
+printf '# content changed with no version bump\n' >> "$update_mismatch_stub"
+
+rm -f "$tmp/git.log"
+update_mismatch_rc=0
+update_mismatch_output="$(cd "$fake_repo" && run_update --global --workflows 2>&1)" \
+  || update_mismatch_rc=$?
+update_mismatch_line="$(echo "$update_mismatch_output" | grep "publish-cody-resolve" || true)"
+echo "$update_mismatch_line" | grep -q "unchanged" \
+  && { echo "FAIL: --global --workflows reported 'unchanged' for diverging content" >&2
+       echo "Output was: $update_mismatch_output" >&2; exit 1; } || true
+echo "$update_mismatch_line" | grep -q "MISMATCH" \
+  || { echo "FAIL: --global --workflows must surface MISMATCH through the delegation" >&2
+       echo "Output was: $update_mismatch_output" >&2; exit 1; }
+[[ "$update_mismatch_rc" -ne 0 ]] \
+  || { echo "FAIL: --global --workflows must propagate the non-zero MISMATCH exit" >&2; exit 1; }
+grep -qF "# content changed with no version bump" "$update_mismatch_stub" \
+  || { echo "FAIL: --global --workflows must not overwrite a MISMATCH without --force" >&2; exit 1; }
+
+# --force still resolves it through the same delegation.
+rm -f "$tmp/git.log"
+update_force_rc=0
+update_force_output="$(cd "$fake_repo" && run_update --global --workflows --force 2>&1)" \
+  || update_force_rc=$?
+[[ "$update_force_rc" -eq 0 ]] \
+  || { echo "FAIL: --global --workflows --force must resolve a MISMATCH and exit zero" >&2
+       echo "Output was: $update_force_output" >&2; exit 1; }
+cmp -s "$repository_root/plugins/cody-dr/workflows/publish-cody-resolve.yml" \
+       "$update_mismatch_stub" \
+  || { echo "FAIL: --force must restore byte identity through bin/update too" >&2; exit 1; }
+
 echo "bin/update workflow tests passed"
