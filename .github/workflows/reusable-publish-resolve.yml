@@ -26,6 +26,18 @@ on:
           in docs/spike-reusable-workflow-resolution.md.
         required: true
         type: string
+      stub_version:
+        description: >-
+          The catalog version of the stub that dispatched this run, passed as a
+          literal equal to the stub's own `# <agent>-dr: v` marker. Compared
+          against the minimum this definition requires, so a stub that predates
+          a required input is reported instead of silently passing it empty
+          (dr-agents#268). Not required, and empty-defaulted: a stub old enough
+          to predate the guard cannot pass it, and failing those would break
+          working consumers.
+        required: false
+        default: ''
+        type: string
     secrets:
       app_private_key:
         description: Private key of the publishing App.
@@ -35,16 +47,85 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Announce the publisher definition release
+      - name: Announce the release and check the caller's stub version
         # First step in every publisher, so a run's provenance is readable even
         # when a later step fails. The catalog ref names what the caller asked
         # for; this names what actually executed, which is what distinguishes
         # the definition before a tag promotion from the one after it. Kept in
         # agreement across all six definitions by bin/check (dr-agents#260).
+        env:
+          STUB_VERSION: ${{ inputs.stub_version }}
         run: |
           set -euo pipefail
           echo "publisher definition release: 3"
           echo "- publisher definition release: \`3\`" >> "$GITHUB_STEP_SUMMARY"
+
+          # dr-agents#268. A stub is a file copied into the consumer, so a
+          # definition that gains an input the stub must pass is simply not
+          # passed it by an older stub: the input arrives empty and nothing
+          # says so. This compares the caller's stub against the minimum this
+          # definition needs.
+          #
+          # The comparand is a literal here rather than the catalog version
+          # staged at catalog_ref, which is what dr-agents#268 originally
+          # proposed. Two measurements changed that. Comparing against the
+          # *current* catalog version would fire on every routine version bump,
+          # in consumers that are perfectly correct, and a guard that alarms
+          # when all is well is ignored within two releases -- reintroducing the
+          # silence by another route. And reusable-publish-issue.yml performs no
+          # checkout and takes no catalog_ref, a property
+          # tests/test_reusable_ref_resolution.sh asserts; a literal needs no
+          # staged catalog, so this needs no exception for it.
+          #
+          # Bump it ONLY when a definition gains an input a stub must pass. All
+          # six must agree; bin/check enforces that, because a partial bump
+          # would make the guard lie about what it requires.
+          minimum_stub_version="0.1.31"
+          echo "minimum stub version: ${minimum_stub_version}"
+          echo "- minimum stub version: \`${minimum_stub_version}\`" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ -z "${STUB_VERSION}" ]]; then
+            # Forward-only by construction: a stub old enough to predate this
+            # guard cannot pass the input that would report it. Deliberately not
+            # fatal -- every stub installed before this shipped is in this
+            # state and almost all of them are fine, so failing here would break
+            # working consumers over a usually benign condition. Loud in both
+            # channels instead, because a warning nobody reads is the same
+            # silence under another name.
+            echo "stub-version-unknown: this stub predates the version guard and does not report its version; reinstall with bin/install" >&2
+            {
+              echo "- stub version: \`stub-version-unknown\`"
+              echo "- This stub predates the version guard, so it cannot report"
+              echo "  its version and cannot be checked against the minimum above."
+              echo "  Reinstall it with \`bin/install\` to make this checkable."
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [[ ! "${STUB_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # Rejected rather than compared and silently passing.
+            echo "stub-version-malformed: '${STUB_VERSION}' is not a three-part numeric version" >&2
+            {
+              echo "- stub version: \`stub-version-malformed\` (\`${STUB_VERSION}\`)"
+              echo "- The stub reported a version this guard cannot compare."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            # Field-wise numeric comparison. A lexical compare puts 0.1.9 ABOVE
+            # 0.1.31 and would let an outdated stub through -- silently, which
+            # is the exact failure this guard exists to end.
+            oldest="$(printf '%s\n%s\n' "${minimum_stub_version}" "${STUB_VERSION}" \
+              | sort -t. -k1,1n -k2,2n -k3,3n | head -1)"
+            if [[ "${oldest}" == "${STUB_VERSION}" && "${STUB_VERSION}" != "${minimum_stub_version}" ]]; then
+              echo "stub-outdated: caller's stub is v${STUB_VERSION}, this definition requires v${minimum_stub_version} or later; reinstall with bin/install" >&2
+              {
+                echo "- stub version: \`stub-outdated\` (\`${STUB_VERSION}\`)"
+                echo "- This stub predates an input this publisher requires, so that"
+                echo "  input would arrive empty. Nothing has been published."
+                echo "  Reinstall the stub with \`bin/install\` and dispatch again."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "stub version: ${STUB_VERSION}"
+            echo "- stub version: \`${STUB_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Create an installation token
         id: app-token
         # v3.2.0
