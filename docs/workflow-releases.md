@@ -125,14 +125,13 @@ code and reality disagreed; a check reading only the exit status calls that a
 clean failure and leaves a stray comment behind. The smoke test fails that case
 *naming* the publisher whose resource exists over a red job.
 
-It does not read the typed publication outcome from the step summary, because
-that vocabulary currently exists in exactly one of the six definitions —
-`reusable-publish-issue.yml`. The other five write only the release marker and
-the catalog ref to the summary, which is why the `GITHUB_STEP_SUMMARY`
-assertion in `bin/check` passes over all six without noticing. Extending the
-vocabulary to the other five is tracked separately; the smoke test lands first
-so that the detector is proven against the publishers as they are before it is
-used to certify a change to them.
+It does not read the typed publication outcome from the step summary. When the
+smoke test was written that vocabulary existed in exactly one of the six
+definitions, and asserting on the API rather than on a log line proved to be
+the stronger check regardless: it observes what GitHub holds instead of
+trusting what the publisher reports about itself. All six definitions carry
+the vocabulary since dr-agents#278, which the smoke test then certified — the
+first behavior change it gated. The assertion stays on the API.
 
 ### Where it sits
 
