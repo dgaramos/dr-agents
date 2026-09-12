@@ -11,10 +11,15 @@ readonly codex_dir="$tmp/home/.codex"
 
 # Run bin/install with overridden HOME and CODEX_CONFIG_DIR.
 # First arg is the working directory; remaining args are passed to bin/install.
+# The first argument is the working directory to run from. bin/install --repo
+# installs into the current working directory rather than into HOME, so this
+# must actually take effect: without it an unrejected --repo writes into
+# whatever directory the suite runs from, which is the catalog checkout.
 run_install() {
   local workdir="$1"; shift
-  HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" \
-    bash "$repository_root/bin/install" "$@" 2>&1
+  ( cd "$workdir" \
+      && HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" \
+         bash "$repository_root/bin/install" "$@" 2>&1 )
 }
 
 mkdir -p "$fake_home" "$fake_repo"
@@ -160,5 +165,67 @@ echo "$repo_force_output" | grep -q "WARNING" || { echo "FAIL: --repo --force sh
 repo_actual="$(< "$fake_repo/.claude/.claude-plugin/plugin.json")"
 repo_expected="$(< "$repository_root/plugins/claudio-dr/.claude-plugin/plugin.json")"
 [[ "$repo_actual" == "$repo_expected" ]] || { echo "FAIL: --repo --force did not overwrite the tampered file" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Mutually exclusive mode flags
+#
+# --global, --repo, --download, --status and --workflows are five alternative
+# invocations in usage(); no two may be combined. The argument loop was
+# last-wins, so a pair was silently resolved to whichever flag came last and
+# then executed — `bin/install --global --download` performed a download-based
+# install. This is the same defect fixed in bin/update for dr-agents#299, and
+# bin/install is reached directly through `agents install`.
+#
+# Each case asserts the cause, not just a non-zero exit, so that an unrelated
+# failure cannot satisfy it.
+# ---------------------------------------------------------------------------
+readonly install_scratch="$tmp/install-scratch"
+mkdir -p "$install_scratch"
+rm -rf "$fake_home/.claude" "$codex_dir" "$fake_home/.local"
+
+readonly install_mode_flags=(global repo download status workflows)
+
+for first in "${install_mode_flags[@]}"; do
+  for second in "${install_mode_flags[@]}"; do
+    [[ "$first" == "$second" ]] && continue
+
+    if out="$(run_install "$install_scratch" "--$first" "--$second" 2>&1)"; then
+      echo "FAIL: bin/install --$first --$second should be rejected as mutually exclusive, but exited 0; output: $out" >&2
+      exit 1
+    fi
+
+    if ! echo "$out" | grep -qi "mutually exclusive"; then
+      echo "FAIL: bin/install --$first --$second exited non-zero, but not for the mutually-exclusive reason; output: $out" >&2
+      exit 1
+    fi
+
+    if ! echo "$out" | grep -q -- "--$first"; then
+      echo "FAIL: rejection of bin/install --$first --$second does not name --$first; output: $out" >&2
+      exit 1
+    fi
+
+    if ! echo "$out" | grep -q -- "--$second"; then
+      echo "FAIL: rejection of bin/install --$first --$second does not name --$second; output: $out" >&2
+      exit 1
+    fi
+  done
+done
+
+# No rejected pair installed anything.
+[[ ! -d "$fake_home/.claude" ]] || \
+  { echo "FAIL: a rejected bin/install mode pair installed into ~/.claude" >&2; exit 1; }
+[[ ! -d "$codex_dir" ]] || \
+  { echo "FAIL: a rejected bin/install mode pair installed into the Codex config directory" >&2; exit 1; }
+[[ ! -e "$fake_home/.local/bin/agents" ]] || \
+  { echo "FAIL: a rejected bin/install mode pair installed the agents CLI" >&2; exit 1; }
+[[ ! -d "$install_scratch/.claude" ]] || \
+  { echo "FAIL: a rejected bin/install mode pair performed a repo-local install" >&2; exit 1; }
+
+# A repeated identical mode flag is not a conflict.
+install_repeat_out="$(run_install "$install_scratch" --status --status 2>&1 || true)"
+if echo "$install_repeat_out" | grep -qi "mutually exclusive"; then
+  echo "FAIL: bin/install --status --status is not a mode conflict; output: $install_repeat_out" >&2
+  exit 1
+fi
 
 echo "bin/install tests passed"

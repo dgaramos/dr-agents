@@ -659,6 +659,10 @@ bash tests/test_publish_pr.sh
 bash tests/test_publish_review.sh
 bash tests/test_select_publisher.sh
 bash tests/test_install_workflows.sh
+# Mutually exclusive mode flags in bin/update (dr-agents#299). This test was
+# previously in no gate at all — neither here nor in ci.yml — so its broken
+# assertion could only ever be seen by running it by hand.
+bash tests/test_update_download.sh
 bash tests/test_reusable_ref_resolution.sh
 # The outdated-stub guard (dr-agents#268). This owns the rules that keep the
 # six minimum literals in agreement and each stub's `stub_version:` equal to its

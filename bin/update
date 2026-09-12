@@ -105,12 +105,27 @@ PROFILE_NAME=""
 FORCE_FLAG=""
 WORKFLOWS=0
 
+# --global, --repo, --all and --download are the four alternative invocations
+# in usage(); no two may be combined. Selecting the mode through this helper
+# rejects a conflicting pair during parsing, which makes the rejection
+# order-independent and — because it happens before pull_catalog — independent
+# of whether the checkout's branch has a configured upstream. Repeating the
+# same flag is idempotent, not a conflict.
+set_mode() {
+  local requested="$1"
+  if [[ -n "${MODE}" && "${MODE}" != "${requested}" ]]; then
+    echo "--${MODE} and --${requested} are mutually exclusive" >&2
+    exit 1
+  fi
+  MODE="${requested}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --global)    MODE="global";    shift ;;
-    --repo)      MODE="repo";      shift ;;
-    --all)       MODE="all";       shift ;;
-    --download)  MODE="download";  shift ;;
+    --global)    set_mode "global";   shift ;;
+    --repo)      set_mode "repo";     shift ;;
+    --all)       set_mode "all";      shift ;;
+    --download)  set_mode "download"; shift ;;
     --workflows) WORKFLOWS=1;      shift ;;
     --force)     FORCE_FLAG="--force"; shift ;;
     --profile)
@@ -143,10 +158,11 @@ if [[ "${MODE}" == "download" && -n "${FORCE_FLAG}" ]]; then
   exit 1
 fi
 
-if [[ "${MODE}" == "download" && "${WORKFLOWS}" == "1" ]]; then
-  echo "--workflows is not valid with --download" >&2
-  exit 1
-fi
+# --download combined with --workflows is already rejected above by the
+# "--workflows is only valid with --global" guard, which fires for every mode
+# other than global. A second, narrower guard for that same pair was
+# unreachable and is not reinstated: enumerating rejected combinations one pair
+# at a time is what let the mode-versus-mode conflict go unnoticed.
 
 if [[ "${MODE}" == "download" ]]; then
   update_downloaded
