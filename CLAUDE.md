@@ -84,6 +84,29 @@ board status.
    contract (modes, secret names only — never values).
 3. Add the path to `required_paths` in `bin/check`.
 
+## Tooling pitfalls
+
+Each of these produced a false result during real work. Check them before
+trusting a verification.
+
+- **`bin/install --repo` targets the current working directory, not `HOME`.**
+  A test that fakes `HOME` and runs it from the catalog checkout writes into
+  the catalog's own `.claude/`. Run install tests from a scratch directory.
+- **`gh pr edit --milestone` takes the milestone title, not its number.**
+  `--milestone 3` fails with `'3' not found`; pass the title the profile's
+  milestone number resolves to.
+- **`compgen -G` is not an existence check.** With no glob metacharacters it
+  returns the pattern unchanged, so a stale path reads as present. Use `[ -e ]`
+  or a real `glob` call.
+- **A pipeline reports the last command's exit status.** `docker build ... |
+  tail` returns `tail`'s zero while the build fails. Check the status of the
+  command that matters, or set `pipefail`.
+- **Hand-maintained lists drift silently.** Derive sets from the tree instead
+  of enumerating names: `bin/install` derives its stub set from
+  `plugins/*/workflows/`, and `verify-publisher-dispatch.sh` compares a profile
+  against `.github/workflows/` in both directions. A count or a fixed list that
+  passes today fails for being correct the day something is added.
+
 ## Publication safety
 
 An explicit issue-execution request authorizes branch creation, implementation,
