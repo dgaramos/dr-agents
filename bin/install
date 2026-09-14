@@ -34,7 +34,10 @@ Usage: bin/install [--force]
                     the current repo. Reports each managed workflow as 'present',
                     'absent', 'drifted', or 'MISMATCH' — the last meaning the
                     stub carries the current version marker over different
-                    content, which exits non-zero. No files are written.
+                    content, which exits non-zero. Also reports any catalog
+                    core/ file vendored at the repository root, by name and
+                    state ('identical'/'diverged'), and exits non-zero: nothing
+                    installs or runs such copies. No files are written.
   --global          Install claudio-dr plugin to ~/.claude/ and cody-dr plugin
                     to the global Codex config directory.
   --repo            Install claudio-dr plugin to .clone/ in the current repo.
@@ -57,6 +60,8 @@ Usage: bin/install [--force]
                     'MISMATCH'. A MISMATCH is left untouched and exits non-zero;
                     use --force to overwrite it. Publishers are thin dispatch
                     stubs: no publication script is copied into the repository.
+                    Vendored catalog core/ files are reported the same way as
+                    in the no-mode check and also exit non-zero.
   --force           Skip conflict checking and overwrite all files from the
                     catalog source, printing a warning for each overwritten
                     file. Use 'agents update --global --force' to resolve
@@ -387,6 +392,53 @@ plugin_catalog_version() {
 }
 
 # ---------------------------------------------------------------------------
+# Vendored core/ files
+# ---------------------------------------------------------------------------
+
+# A catalog file copied into a consumer at the catalog's own path is a copy
+# nothing installs, verifies, or removes (dr-agents#304). Every consumer that
+# carried one drifted; the reusable publishers read the catalog checkout, so no
+# copy is ever executed. Report each one by name and state and fail: an
+# identical copy is the same defect as a diverged one, because nothing keeps it
+# identical. Only the repository-root core/ is inspected — a nested core/ is an
+# ordinary source directory — and only files with a catalog counterpart count,
+# so a consumer's own root core/ is left alone. Nothing is deleted: an
+# installer that removes files in a repository it does not own is not one
+# anybody should trust.
+#
+# Prints one line per vendored file and returns the count.
+report_vendored_core() {
+  local repo_root="$1"
+  local consumer_core="${repo_root}/core"
+  local catalog_core="${REPO_DIR}/core"
+  local count=0
+  [[ -d "$consumer_core" ]] || return 0
+  # The catalog itself is not a consumer of itself.
+  [[ "$(cd "$consumer_core" && pwd -P)" == "$(cd "$catalog_core" && pwd -P)" ]] && return 0
+
+  local file rel state
+  while IFS= read -r file; do
+    rel="${file#"${repo_root}/"}"
+    [[ -f "${catalog_core}/${rel#core/}" ]] || continue
+    if cmp -s "$file" "${catalog_core}/${rel#core/}"; then
+      state="identical to catalog"
+    else
+      state="diverged from catalog"
+    fi
+    echo "  vendored catalog file: ${rel} (${state})" >&2
+    count=$((count + 1))
+  done < <(find "$consumer_core" -type f | LC_ALL=C sort)
+
+  if [[ "$count" -gt 0 ]]; then
+    echo "  ${count} catalog file(s) are vendored into this repository. Nothing installs," >&2
+    echo "  verifies, or runs them: publishers read the catalog checkout. Delete the" >&2
+    echo "  copies; this installer will not remove them for you." >&2
+    echo "" >&2
+  fi
+  return "$count"
+}
+
+# ---------------------------------------------------------------------------
 # (no args) — check workflow presence and drift in CWD .github/workflows/
 # ---------------------------------------------------------------------------
 
@@ -423,10 +475,14 @@ mode_check_workflows() {
   done
   echo ""
 
+  local vendored=0
+  report_vendored_core "$repo_root" || vendored=$?
+
   if [[ "${mismatches}" -gt 0 ]]; then
     report_mismatch_diagnosis "${mismatches}"
     return 1
   fi
+  [[ "${vendored}" -eq 0 ]] || return 1
 }
 
 # Explain a MISMATCH once, naming both causes and the escape hatch.
@@ -531,11 +587,15 @@ mode_install_workflows() {
     echo ""
   fi
 
+  local vendored=0
+  report_vendored_core "$repo_root" || vendored=$?
+
   if [[ "${any_mismatch}" -gt 0 ]]; then
     echo "Workflow install incomplete: ${any_mismatch} stub(s) left untouched." >&2
     report_mismatch_diagnosis "${any_mismatch}"
     return 1
   fi
+  [[ "${vendored}" -eq 0 ]] || return 1
 
   echo "Workflow install complete (dispatch stubs only; publication runs from the catalog)."
 }

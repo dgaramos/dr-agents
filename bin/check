@@ -659,6 +659,9 @@ bash tests/test_publish_pr.sh
 bash tests/test_publish_review.sh
 bash tests/test_select_publisher.sh
 bash tests/test_install_workflows.sh
+# Vendored core/ files in a consumer (dr-agents#304). The check mode must name
+# the file and its state; a generic "vendored files found" is silence renamed.
+bash tests/test_install_vendored_core.sh
 # Mutually exclusive mode flags in bin/update (dr-agents#299). This test was
 # previously in no gate at all — neither here nor in ci.yml — so its broken
 # assertion could only ever be seen by running it by hand.
