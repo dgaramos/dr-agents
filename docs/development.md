@@ -28,7 +28,20 @@ bin/install --repo --profile craft-control
 
 # Check what is currently installed globally and in the current repo:
 bin/install --status
+
+# Check the current repo's workflow stubs and reject vendored catalog files:
+cd /path/to/your-repo
+bin/install
 ```
+
+Run without a mode, `bin/install` is the consumer-side gate: it reports each
+managed workflow stub as present, absent, drifted, or mismatched, and it
+reports any catalog `core/` file vendored at the repository root by name and
+state (`identical to catalog` or `diverged from catalog`). Both exit non-zero.
+Consumers never need a local copy of a `core/` script: the reusable publishers
+run against the catalog checkout, so a vendored copy is never executed and
+nothing keeps it current. The installer reports such copies and leaves their
+removal to the repository owner.
 
 The `--global` mode also copies `bin/agents` to `~/.local/bin/agents` (creating
 the directory if needed) and marks it executable, so the `agents` command is
