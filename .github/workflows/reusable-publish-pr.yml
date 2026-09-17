@@ -138,6 +138,10 @@ jobs:
           private-key: ${{ secrets.app_private_key }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          # Creating a pull request resolves the head ref through the token, so
+          # on a private repository pull-requests alone returns 422 Validation
+          # Failed (observed on dgaramos/dr-specs). Public repositories mask it.
+          permission-contents: read
           permission-pull-requests: write
       - name: Validate the catalog ref
         id: catalog
