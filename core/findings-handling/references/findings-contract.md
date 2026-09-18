@@ -64,7 +64,13 @@ Do not publish a reply, resolve a thread, push, or merge unless the user
 explicitly authorizes that external action.
 
 For an approved fix: the reply states what changed, links the dedicated commit,
-and records validation. For an approved separate issue: the reply links the
+and records validation. It is an implementer-role reply, so it carries the
+`Fix applied — <workflow name>:` role marker and names this workflow and the
+commit. The reply template and its fields are defined once, in the thread reply
+anatomy of `core/pr-review/references/review-contract.md`; follow that
+definition rather than a copy of it here. A reply in that form reports an
+implementation and is never proof of resolution: it does not by itself move a
+thread to resolved. For an approved separate issue: the reply links the
 published issue. For a not-pertinent or unverifiable finding: publish a factual
 reply only when the user selected that action; otherwise leave the thread open.
 

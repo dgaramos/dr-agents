@@ -13,6 +13,7 @@ readonly verifier="core/pr-review/scripts/verify-review-surface.sh"
 readonly contract="core/pr-review/references/review-contract.md"
 readonly reporting="core/pr-review/references/reporting.md"
 readonly example="examples/generic-pr-review.md"
+readonly findings="core/findings-handling/references/findings-contract.md"
 
 temporary_root="$(mktemp -d)"
 trap 'rm -rf "$temporary_root"' EXIT
@@ -30,13 +31,15 @@ make_fixture() {
   cp "$contract" "$dir/review-contract.md"
   cp "$reporting" "$dir/reporting.md"
   cp "$example" "$dir/generic-pr-review.md"
+  cp "$findings" "$dir/findings-contract.md"
   echo "$dir"
 }
 
 run_verifier() {
   local dir="$1"
   bash "$verifier" \
-    "$dir/review-contract.md" "$dir/reporting.md" "$dir/generic-pr-review.md" 2>&1
+    "$dir/review-contract.md" "$dir/reporting.md" "$dir/generic-pr-review.md" \
+    "$dir/findings-contract.md" 2>&1
 }
 
 # --- happy path: the shipped files satisfy the unified surface --------------
@@ -332,6 +335,130 @@ elif grep -qi 'publication' <<<"$output"; then
   pass "O: a Publication field hidden in the collapsed scope block is rejected"
 else
   fail "O: rejected without naming the publication field: $output"
+fi
+
+
+# --- failure path: the reviewer reply template loses a required field ------
+# #347: a reply that drops `Verified on <sha>:` is indistinguishable from the
+# restatement the anatomy exists to prevent.
+for reply_field in 'Verified on' 'Severity (' 'Status:'; do
+  reply_case="$(make_fixture "reply_${reply_field// /_}")"
+  grep -vF "**${reply_field}" "$reply_case/review-contract.md" \
+    >"$reply_case/patched" && mv "$reply_case/patched" "$reply_case/review-contract.md"
+  if output="$(run_verifier "$reply_case")"; then
+    fail "P[$reply_field]: a reply template without the field was accepted"
+  elif grep -qi 'reply' <<<"$output"; then
+    pass "P[$reply_field]: a reply template without the field is rejected"
+  else
+    fail "P[$reply_field]: rejected without naming the reply template: $output"
+  fi
+done
+
+# --- failure path: the display-name prefix rule removed --------------------
+prefix="$(make_fixture prefix)"
+sed -i.bak '/display name/d' "$prefix/review-contract.md"
+if output="$(run_verifier "$prefix")"; then
+  fail "Q: a contract without the display-name prefix rule was accepted"
+elif grep -qi 'display name' <<<"$output"; then
+  pass "Q: removing the display-name prefix rule is rejected"
+else
+  fail "Q: rejected without naming the prefix rule: $output"
+fi
+
+# --- failure path: the implementer role marker removed ---------------------
+marker="$(make_fixture marker)"
+sed -i.bak 's/Fix applied/Change landed/g' "$marker/review-contract.md"
+if output="$(run_verifier "$marker")"; then
+  fail "R: a contract without the implementer role marker was accepted"
+elif grep -qi 'implementer\|Fix applied' <<<"$output"; then
+  pass "R: removing the implementer role marker is rejected"
+else
+  fail "R: rejected without naming the role marker: $output"
+fi
+
+# --- failure path: implementer replies allowed as resolution evidence ------
+resolution="$(make_fixture resolution)"
+sed -i.bak '/never proof of resolution/d' "$resolution/review-contract.md"
+if output="$(run_verifier "$resolution")"; then
+  fail "R2: a contract that does not exclude implementer replies was accepted"
+elif grep -qi 'resolution' <<<"$output"; then
+  pass "R2: dropping the implementer resolution exclusion is rejected"
+else
+  fail "R2: rejected without naming the resolution rule: $output"
+fi
+
+# --- failure path: the findings contract stops emitting the marker ---------
+findings_case="$(make_fixture findings)"
+sed -i.bak 's/Fix applied/Change landed/g' "$findings_case/findings-contract.md"
+if output="$(run_verifier "$findings_case")"; then
+  fail "S: a findings contract without the role marker was accepted"
+elif grep -qi 'findings' <<<"$output"; then
+  pass "S: a findings contract without the role marker is rejected"
+else
+  fail "S: rejected without naming the findings contract: $output"
+fi
+
+# --- failure path: the findings contract restates the reply template -------
+# The marker must be emitted by reference to review-contract.md, not copied:
+# two core files defining one template is the drift #339 removed.
+findings_pointer="$(make_fixture findings_pointer)"
+sed -i.bak 's|review-contract.md|reporting.md|g' \
+  "$findings_pointer/findings-contract.md"
+if output="$(run_verifier "$findings_pointer")"; then
+  fail "S2: a findings contract that does not point at the canonical template was accepted"
+elif grep -qi 'canonical\|points at\|review-contract' <<<"$output"; then
+  pass "S2: a findings contract without the canonical pointer is rejected"
+else
+  fail "S2: rejected without naming the missing pointer: $output"
+fi
+
+# --- failure path: the AI-prompt gate removed ------------------------------
+prompt_gate="$(make_fixture prompt_gate)"
+sed -i.bak '/one-hunk/d' "$prompt_gate/review-contract.md"
+if output="$(run_verifier "$prompt_gate")"; then
+  fail "T: an ungated AI-agent prompt block was accepted"
+elif grep -qi 'one-hunk\|prompt' <<<"$output"; then
+  pass "T: an ungated AI-agent prompt block is rejected"
+else
+  fail "T: rejected without naming the prompt gate: $output"
+fi
+
+# --- failure path: committable suggestions no longer stated as never required
+suggestion="$(make_fixture suggestion)"
+sed -i.bak '/never required/d' "$suggestion/review-contract.md"
+if output="$(run_verifier "$suggestion")"; then
+  fail "T2: a contract that may require suggestion blocks was accepted"
+elif grep -qi 'suggestion' <<<"$output"; then
+  pass "T2: dropping the never-required suggestion rule is rejected"
+else
+  fail "T2: rejected without naming the suggestion rule: $output"
+fi
+
+# --- regression: a second AI-agent prompt block appearing later ------------
+# #351 tightened the one existing block. A second block elsewhere in the
+# contract would carry its own, looser gate and quietly undo that tightening,
+# so exactly one block is the assertion, not merely at least one.
+second_prompt="$(make_fixture second_prompt)"
+printf '\n<details>\n<summary>Prompt for AI agents</summary>\n\nAnything at all.\n\n</details>\n' \
+  >>"$second_prompt/review-contract.md"
+if output="$(run_verifier "$second_prompt")"; then
+  fail "U: a second AI-agent prompt block was accepted"
+elif grep -qi 'exactly one\|prompt' <<<"$output"; then
+  pass "U: a second AI-agent prompt block is rejected"
+else
+  fail "U: rejected without naming the duplicate prompt block: $output"
+fi
+
+# --- edge case: the shipped prompt block keeps its untrusted marking -------
+untrusted="$(make_fixture untrusted)"
+sed -i.bak 's/untrusted review data/ordinary review data/' \
+  "$untrusted/review-contract.md"
+if output="$(run_verifier "$untrusted")"; then
+  fail "V: an AI-agent prompt block not marked untrusted was accepted"
+elif grep -qi 'untrusted' <<<"$output"; then
+  pass "V: an AI-agent prompt block not marked untrusted is rejected"
+else
+  fail "V: rejected without naming the untrusted marking: $output"
 fi
 
 if ((failures > 0)); then

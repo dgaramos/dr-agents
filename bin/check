@@ -623,7 +623,8 @@ bash core/pr-review/scripts/verify-publisher-dispatch.sh \
 bash core/pr-review/scripts/verify-review-surface.sh \
   core/pr-review/references/review-contract.md \
   core/pr-review/references/reporting.md \
-  examples/generic-pr-review.md
+  examples/generic-pr-review.md \
+  core/findings-handling/references/findings-contract.md
 
 while IFS= read -r skill; do
   awk '

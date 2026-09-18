@@ -11,6 +11,12 @@
 # against a hardcoded list, because a hardcoded list passes the day a category
 # is added to both files and is then wrong about what the files actually say.
 #
+# The findings contract is checked too, because it is the other core file that
+# tells a workflow what to post. It must emit the implementer role marker and
+# point at the canonical template rather than restate it: two core files
+# defining one template is the drift this script exists to prevent, moved one
+# layer up.
+#
 # It also enforces the properties of the published body: it never states its own
 # publication status (that belongs to the manifest and the terminal summary),
 # the re-review prior-head rule ignores body-less review events, and the
@@ -24,15 +30,16 @@
 # reader while the gate and the manifest record remain.
 set -euo pipefail
 
-[[ $# == 3 ]] || {
-  echo "usage: verify-review-surface.sh CONTRACT_PATH REPORTING_PATH EXAMPLE_PATH" >&2
+[[ $# == 4 ]] || {
+  echo "usage: verify-review-surface.sh CONTRACT_PATH REPORTING_PATH EXAMPLE_PATH FINDINGS_PATH" >&2
   exit 2
 }
 contract_path="$1"
 reporting_path="$2"
 example_path="$3"
+findings_path="$4"
 
-for path in "$contract_path" "$reporting_path" "$example_path"; do
+for path in "$contract_path" "$reporting_path" "$example_path" "$findings_path"; do
   [[ -r "$path" ]] || { echo "not readable: $path" >&2; exit 2; }
 done
 
@@ -243,6 +250,70 @@ Walkthrough|Walkthrough
 Behavior map|Behavior map
 Pre-merge|Pre-merge checks table
 GATES
+
+# ---------------------------------------------------------------------------
+# Thread reply anatomy (dr-agents#347, #348)
+# ---------------------------------------------------------------------------
+
+# A reply template missing one of its fields is not a shorter reply; it is a
+# reply that has lost the property the field carried — the verified head, the
+# audible severity disagreement, or the declared thread action.
+for reply_field in 'Verified on' 'Severity (' 'Status:'; do
+  if ! grep -qF "**${reply_field}" "$contract_path"; then
+    violation "$contract_path thread reply template does not carry the '${reply_field}' field"
+  fi
+done
+
+if ! grep -qF "display name" "$contract_path"; then
+  violation "$contract_path does not state that a reply must not open with the reviewer's display name"
+fi
+
+if ! grep -qF 'Fix applied' "$contract_path"; then
+  violation "$contract_path does not define the implementer role marker 'Fix applied'"
+fi
+if ! grep -qF 'never proof of resolution' "$contract_path"; then
+  violation "$contract_path does not exclude implementer replies from resolution evidence"
+fi
+
+# The findings contract emits the marker by pointing at the canonical template.
+# Restating the template here is what the pointer requirement prevents.
+if ! grep -qF 'Fix applied' "$findings_path"; then
+  violation "$findings_path does not emit the implementer role marker"
+fi
+if ! grep -qF 'review-contract.md' "$findings_path"; then
+  violation "$findings_path does not point at the canonical reply template in review-contract.md"
+fi
+
+# ---------------------------------------------------------------------------
+# The AI-agent prompt block is optional and evidence-gated (dr-agents#351)
+# ---------------------------------------------------------------------------
+
+# Exactly one block, not at least one: a second block elsewhere would carry its
+# own looser gate and silently undo the gate below.
+prompt_blocks="$(grep -cF '<summary>Prompt for AI agents</summary>' "$contract_path" || true)"
+if ((prompt_blocks == 0)); then
+  violation "$contract_path defines no AI-agent prompt block"
+elif ((prompt_blocks > 1)); then
+  violation "$contract_path defines $prompt_blocks AI-agent prompt blocks; exactly one gated block may exist"
+fi
+
+# Scoped to the block's own text: prose elsewhere in the contract that happens
+# to use the word does not make the emitted prompt say it, and the emitted
+# prompt is the only copy a future agent reads.
+prompt_block_text="$(awk '
+  /<summary>Prompt for AI agents<\/summary>/ { in_block = 1; next }
+  in_block && /^<\/details>/ { in_block = 0 }
+  in_block { print }
+' "$contract_path")"
+if ! grep -qF 'untrusted' <<<"$prompt_block_text"; then
+  violation "the AI-agent prompt block's own text does not mark the finding data as untrusted"
+fi
+if ! grep -qF 'one-hunk' "$contract_path"; then
+  violation "$contract_path does not gate the AI-agent prompt block on a verified one-hunk fix"
+fi
+if ! grep -qF 'never required' "$contract_path"; then
+  violation "$contract_path does not state that a committable suggestion block is never required"
+fi
 
 # ---------------------------------------------------------------------------
 # Confidence is reviewer-internal, not reader-facing
