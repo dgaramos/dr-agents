@@ -55,6 +55,7 @@ readonly required_paths=(
   "core/pr-review/references/publication-routing-contract.md"
   "core/pr-review/scripts/select-publisher.sh"
   "core/pr-review/scripts/verify-publisher-dispatch.sh"
+  "core/pr-review/scripts/verify-review-surface.sh"
   "examples/generic-publisher-dispatch-verification.md"
   "examples/generic-app-delivery.md"
   "docs/app-publishing.md"
@@ -611,6 +612,19 @@ grep -qF '`create-issue`' profiles/dr-agents.md
 bash core/pr-review/scripts/verify-publisher-dispatch.sh \
   profiles/dr-agents.md .github/workflows
 
+# The published review surface (dr-agents#339, #340, #341, #350). One file owns
+# the finding and summary templates; the other owns the category and class
+# tables and points at it. The verifier derives the anchor sets from the tables
+# themselves, so a category added to one file and not the other fails here
+# instead of shipping as a silent disagreement about what a review looks like.
+# It also holds the published body to three properties: it never states its own
+# publication status, the prior-head lookup ignores body-less review events, and
+# the re-review preamble names the review it supersedes.
+bash core/pr-review/scripts/verify-review-surface.sh \
+  core/pr-review/references/review-contract.md \
+  core/pr-review/references/reporting.md \
+  examples/generic-pr-review.md
+
 while IFS= read -r skill; do
   awk '
     BEGIN { valid = 0 }
@@ -648,7 +662,9 @@ done
 bash -n core/profile-discovery/scripts/discover-project-profile.sh
 bash -n core/issue-workflow/scripts/apply-pr-metadata.sh
 bash -n core/pr-review/scripts/verify-publisher-dispatch.sh
+bash -n core/pr-review/scripts/verify-review-surface.sh
 bash tests/test_verify_publisher_dispatch.sh
+bash tests/test_review_surface.sh
 tests/test_apply_pr_metadata.sh
 tests/test_publish_claudio_thread_action.sh
 tests/test_publish_cody_thread_action.sh

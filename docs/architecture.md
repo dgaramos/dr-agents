@@ -24,7 +24,7 @@ commands, branch names, credentials, labels, or remote references.
 
 | Area | Contracts | Skills |
 | --- | --- | --- |
-| `core/pr-review/` | `review-contract.md`, `profile-contract.md`, `reporting.md` | — (consumed directly) |
+| `core/pr-review/` | `review-contract.md` (owns the finding, summary, and re-review templates), `profile-contract.md`, `reporting.md` (category and class tables, pointing at the contract) | — (consumed directly) |
 | `core/findings-handling/` | `findings-contract.md` | `handle-findings` |
 | `core/issue-authoring/` | `issue-contract.md` | `author-issue` |
 | `core/design-discovery/` | `design-discovery-contract.md` | `design-discovery` |
