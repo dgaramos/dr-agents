@@ -14,6 +14,7 @@ readonly contract="core/pr-review/references/review-contract.md"
 readonly reporting="core/pr-review/references/reporting.md"
 readonly example="examples/generic-pr-review.md"
 readonly findings="core/findings-handling/references/findings-contract.md"
+readonly profile_contract="core/pr-review/references/profile-contract.md"
 
 temporary_root="$(mktemp -d)"
 trap 'rm -rf "$temporary_root"' EXIT
@@ -32,6 +33,7 @@ make_fixture() {
   cp "$reporting" "$dir/reporting.md"
   cp "$example" "$dir/generic-pr-review.md"
   cp "$findings" "$dir/findings-contract.md"
+  cp "$profile_contract" "$dir/profile-contract.md"
   echo "$dir"
 }
 
@@ -39,7 +41,7 @@ run_verifier() {
   local dir="$1"
   bash "$verifier" \
     "$dir/review-contract.md" "$dir/reporting.md" "$dir/generic-pr-review.md" \
-    "$dir/findings-contract.md" 2>&1
+    "$dir/findings-contract.md" "$dir/profile-contract.md" 2>&1
 }
 
 # --- happy path: the shipped files satisfy the unified surface --------------
@@ -459,6 +461,145 @@ elif grep -qi 'untrusted' <<<"$output"; then
   pass "V: an AI-agent prompt block not marked untrusted is rejected"
 else
   fail "V: rejected without naming the untrusted marking: $output"
+fi
+
+# --- failure path: the Language field missing from the scope block ---------
+# dr-agents#349: the resolved prose language and its origin are part of the
+# published surface, not reviewer-internal state. A review that renders prose in
+# pt-BR without saying so leaves a reader unable to tell a declaration from an
+# accident.
+language="$(make_fixture language)"
+sed -i.bak '/^\*\*Language:\*\*/d' "$language/review-contract.md"
+if output="$(run_verifier "$language")"; then
+  fail "W: a scope block without the Language field was accepted"
+elif grep -qi 'language' <<<"$output"; then
+  pass "W: a scope block without the Language field is rejected"
+else
+  fail "W: rejected without naming the Language field: $output"
+fi
+
+# --- failure path: the Language field promoted above the collapsed block ---
+language_place="$(make_fixture language_place)"
+sed -i.bak '/^\*\*Language:\*\*/d' "$language_place/review-contract.md"
+awk '
+  /^\*\*Next step:\*\*/ {
+    print
+    print "**Language:** <language> (source: <profile|README|default>)"
+    next
+  }
+  { print }
+' "$language_place/review-contract.md" >"$language_place/patched" &&
+  mv "$language_place/patched" "$language_place/review-contract.md"
+if output="$(run_verifier "$language_place")"; then
+  fail "W2: a Language field above the collapsed block was accepted"
+elif grep -qi 'language' <<<"$output"; then
+  pass "W2: a Language field above the collapsed block is rejected"
+else
+  fail "W2: rejected without naming the misplaced field: $output"
+fi
+
+# --- failure path: the emitted Language line loses its source token --------
+# The language alone is not auditable: `pt-BR` with no origin cannot be checked
+# against the profile. This case is scoped to the emitted template line, because
+# the word "source" appears throughout the contract's own English prose and a
+# whole-file grep would pass while the rendered field said nothing.
+language_source="$(make_fixture language_source)"
+sed -i.bak 's/^\*\*Language:\*\*.*/**Language:** <language>/' \
+  "$language_source/review-contract.md"
+if output="$(run_verifier "$language_source")"; then
+  fail "W3: an emitted Language field without its source was accepted"
+elif grep -qi 'source' <<<"$output"; then
+  pass "W3: an emitted Language field without its source is rejected"
+else
+  fail "W3: rejected without naming the missing source: $output"
+fi
+
+# --- failure path: the resolution-order section removed entirely -----------
+# Section-scoped, for the same reason as W3: the contract is written in English
+# and mentions profiles, READMEs and defaults in many places, so the assertion
+# reads only the `### Review language` section's own body.
+language_rule="$(make_fixture language_rule)"
+awk '
+  /^### Review language/ { skipping = 1; next }
+  skipping && /^#+ / { skipping = 0 }
+  !skipping { print }
+' "$language_rule/review-contract.md" >"$language_rule/patched" &&
+  mv "$language_rule/patched" "$language_rule/review-contract.md"
+if output="$(run_verifier "$language_rule")"; then
+  fail "W4: a contract with no review-language rule was accepted"
+elif grep -qi 'language' <<<"$output"; then
+  pass "W4: a contract with no review-language rule is rejected"
+else
+  fail "W4: rejected without naming the language rule: $output"
+fi
+
+# --- failure path: the English fallback dropped from the resolution order --
+# With no terminal source the order has no defined outcome for an undeclared
+# repository, and every unresolved review would have to invent one.
+language_fallback="$(make_fixture language_fallback)"
+awk '
+  /^### Review language/ { in_section = 1 }
+  in_section && /^#+ / && !/^### Review language/ { in_section = 0 }
+  in_section && /source: `default`/ { next }
+  { print }
+' "$language_fallback/review-contract.md" >"$language_fallback/patched" &&
+  mv "$language_fallback/patched" "$language_fallback/review-contract.md"
+if output="$(run_verifier "$language_fallback")"; then
+  fail "W5: a resolution order without the English fallback was accepted"
+elif grep -qi 'default\|fallback' <<<"$output"; then
+  pass "W5: a resolution order without the English fallback is rejected"
+else
+  fail "W5: rejected without naming the missing fallback: $output"
+fi
+
+# --- edge case: a resolution token present only outside the section --------
+# The sharpest fake-pass risk for a language rule: the contract's own prose is
+# English and names profiles, READMEs and defaults in several places, so an
+# assertion that greps the file passes while the section it claims to check has
+# lost the source. This case removes a source from the section and reintroduces
+# every token elsewhere in the file; only a section-scoped assertion rejects it.
+language_scope="$(make_fixture language_scope)"
+awk '
+  /^### Review language/ { in_section = 1 }
+  in_section && /^#+ / && !/^### Review language/ { in_section = 0 }
+  in_section && /source: `README`/ { next }
+  { print }
+' "$language_scope/review-contract.md" >"$language_scope/patched" &&
+  mv "$language_scope/patched" "$language_scope/review-contract.md"
+printf '\nAside: source: `profile`, source: `README`, source: `default`; first\nsource, extensible, badges, section headings, field labels, SHAs.\n' \
+  >>"$language_scope/review-contract.md"
+if output="$(run_verifier "$language_scope")"; then
+  fail "W6: a resolution source present only outside the section was accepted"
+elif grep -qi 'README' <<<"$output"; then
+  pass "W6: a resolution source present only outside the section is rejected"
+else
+  fail "W6: rejected without naming the missing source: $output"
+fi
+
+# --- failure path: the profile contract drops the optional Language key ----
+profile_key="$(make_fixture profile_key)"
+sed -i.bak 's/`Language:`/`Idioma:`/g' "$profile_key/profile-contract.md"
+if output="$(run_verifier "$profile_key")"; then
+  fail "X: a profile contract without the Language key was accepted"
+elif grep -qi 'language' <<<"$output"; then
+  pass "X: a profile contract without the Language key is rejected"
+else
+  fail "X: rejected without naming the Language key: $output"
+fi
+
+# --- failure path: the profile contract restates the resolution order ------
+# Two core files defining one rule is the drift #339 removed from the finding
+# template; the profile contract declares the key and points at the canonical
+# order rather than carrying a second copy of it.
+profile_restate="$(make_fixture profile_restate)"
+printf '\nResolution order: profile, then `source: `default`` in English.\n' \
+  >>"$profile_restate/profile-contract.md"
+if output="$(run_verifier "$profile_restate")"; then
+  fail "X2: a profile contract restating the resolution order was accepted"
+elif grep -qi 'restate\|canonical\|resolution order' <<<"$output"; then
+  pass "X2: a profile contract restating the resolution order is rejected"
+else
+  fail "X2: rejected without naming the restatement: $output"
 fi
 
 if ((failures > 0)); then

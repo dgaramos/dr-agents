@@ -248,6 +248,7 @@ carries the meaning.
 **Scope:** <PR/ref>, `<base>` → `<head>`
 **Reviewed head:** `<sha>`
 **Profile:** <profile name or none>
+**Language:** <language> (source: `<profile|repo declaration|README|default>`)
 **Checks:** CI: N/N green on `<sha>` · Local: <gates run, or none>
 **Not run:** <check and reason, or none>
 **Risk axes:** <evaluated>; not applicable: <axes>
@@ -320,6 +321,40 @@ line `All N consulted checks passed.` Do not restate passing CI as a row.
 The file-count and module thresholds above are the portable default. A target
 profile may tighten or relax them under a `review.size_gates` key; when it does,
 the profile's values apply and the summary states which gate was used.
+
+### Review language
+
+User-facing prose follows the target repository's language. Prose is the text a
+human reads for meaning: the finding title, the explanation, the impact, the
+suggested fix, the `Next step`, the walkthrough cells, and the behavior map's
+one-line prose statement.
+
+Everything structural stays English, because it is matched, filtered, and
+cross-referenced by readers and tooling across teams: badges and their class
+words, section headings, field labels, the verdict, risk, status, and decision
+keywords, SHAs, file paths, identifiers, code, and the AI-agent prompt block.
+Translating those would break the machine- and cross-team-stable structure that
+the rest of this contract depends on.
+
+The language is resolved from an ordered list of sources. The first source that
+declares a language wins, and the summary records which one it was:
+
+| Order | Source | Recorded as |
+| --- | --- | --- |
+| 1 | the target profile's `Language:` field | source: `profile` |
+| 2 | a repository-level language declaration the profile names | source: `<declared file>` |
+| 3 | the repository `README` or pull request template | source: `README` |
+| 4 | English | source: `default` |
+
+The order is extensible, not a fixed pair: a source is added by inserting it at
+its precedence position and declaring the token it records. Do not hardcode one
+origin, and do not infer a language from the diff, the issue, or the author.
+
+Record the outcome in the collapsed scope block as
+`**Language:** pt-BR (source: profile)`. A language with no stated source is not
+auditable, so the field always carries both. When resolution reaches English by
+falling through every declared source, the field states `source: default` rather
+than omitting itself.
 
 Do not invent checks, estimates, risk, or warnings. A concern belongs in the
 pre-merge table only when current evidence supports it; otherwise state the

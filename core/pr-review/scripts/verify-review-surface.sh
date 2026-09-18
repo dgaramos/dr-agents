@@ -30,16 +30,18 @@
 # reader while the gate and the manifest record remain.
 set -euo pipefail
 
-[[ $# == 4 ]] || {
-  echo "usage: verify-review-surface.sh CONTRACT_PATH REPORTING_PATH EXAMPLE_PATH FINDINGS_PATH" >&2
+[[ $# == 5 ]] || {
+  echo "usage: verify-review-surface.sh CONTRACT_PATH REPORTING_PATH EXAMPLE_PATH FINDINGS_PATH PROFILE_CONTRACT_PATH" >&2
   exit 2
 }
 contract_path="$1"
 reporting_path="$2"
 example_path="$3"
 findings_path="$4"
+profile_contract_path="$5"
 
-for path in "$contract_path" "$reporting_path" "$example_path" "$findings_path"; do
+for path in "$contract_path" "$reporting_path" "$example_path" "$findings_path" \
+  "$profile_contract_path"; do
   [[ -r "$path" ]] || { echo "not readable: $path" >&2; exit 2; }
 done
 
@@ -223,13 +225,22 @@ else
     fi
     open_fields="$(head -n $((collapsed_start - 1)) <<<"$field_run")"
     collapsed_fields="$(tail -n +"$collapsed_start" <<<"$field_run")"
-    for field in 'Scope:' 'Reviewed head:' 'Profile:' 'Checks:' 'Risk axes:' 'Thread updates:'; do
+    for field in 'Scope:' 'Reviewed head:' 'Profile:' 'Language:' 'Checks:' \
+      'Risk axes:' 'Thread updates:'; do
       if grep -qF "**$field" <<<"$open_fields"; then
         violation "the $field field is above the verdict's collapsed block; it belongs inside 'Scope, checks and limits'"
       elif ! grep -qF "**$field" <<<"$collapsed_fields"; then
         violation "the collapsed scope block does not carry the $field field"
       fi
     done
+
+    # Scoped to the emitted field, not the file: the contract is written in
+    # English and uses the word "source" throughout its own prose, so a
+    # whole-file grep would pass while the rendered field said only `pt-BR`.
+    language_line="$(grep -F '**Language:**' <<<"$collapsed_fields" | head -n 1)"
+    if [[ -n "$language_line" && "$language_line" != *'(source:'* ]]; then
+      violation "the emitted Language field carries no source token; a language with no stated origin is not auditable: $language_line"
+    fi
 
     checks_line="$(grep -F '**Checks:**' <<<"$collapsed_fields" | head -n 1)"
     if [[ "$checks_line" != *'CI: '* || "$checks_line" != *'Local: '* ]]; then
@@ -250,6 +261,53 @@ Walkthrough|Walkthrough
 Behavior map|Behavior map
 Pre-merge|Pre-merge checks table
 GATES
+
+# ---------------------------------------------------------------------------
+# Review language (dr-agents#349)
+# ---------------------------------------------------------------------------
+
+# Read only the `### Review language` section's own body. Every token below is
+# an ordinary English word that appears elsewhere in this contract, so a
+# whole-file grep would report a rule the contract does not actually state.
+review_language_section="$(awk '
+  /^### Review language/ { in_section = 1; next }
+  in_section && /^#+ / { in_section = 0 }
+  in_section { print }
+' "$contract_path")"
+
+if [[ -z "${review_language_section// /}" ]]; then
+  violation "$contract_path states no Review language rule for user-facing prose"
+else
+  while IFS='|' read -r token label; do
+    grep -qF "source: \`${token}\`" <<<"$review_language_section" ||
+      violation "the Review language resolution order does not record the ${label} source as 'source: ${token}'"
+  done <<'SOURCES'
+profile|profile declaration
+README|repository README
+default|English fallback
+SOURCES
+
+  grep -qF 'first source' <<<"$review_language_section" ||
+    violation "the Review language section does not state that the first declaring source wins"
+  grep -qF 'extensible' <<<"$review_language_section" ||
+    violation "the Review language section does not state that the source order is extensible"
+  for fixed in 'badges' 'section headings' 'field labels' 'SHAs'; do
+    grep -qF "$fixed" <<<"$review_language_section" ||
+      violation "the Review language section does not keep ${fixed} in English"
+  done
+fi
+
+# The profile contract declares the key and points at the canonical order; it
+# must not carry a second copy of that order.
+if ! grep -qF '`Language:`' "$profile_contract_path"; then
+  violation "$profile_contract_path does not document the optional Language key"
+fi
+if ! grep -qF 'review-contract.md' "$profile_contract_path"; then
+  violation "$profile_contract_path does not point at the canonical Review language resolution order in review-contract.md"
+fi
+if grep -qF 'source: `default`' "$profile_contract_path"; then
+  violation "$profile_contract_path restates the Review language resolution order; it belongs only in $contract_path"
+fi
 
 # ---------------------------------------------------------------------------
 # Thread reply anatomy (dr-agents#347, #348)

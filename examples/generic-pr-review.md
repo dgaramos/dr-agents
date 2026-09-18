@@ -24,7 +24,9 @@ which names one action drawn from the formal findings and links its thread when
 that finding is inline. Scope, reviewed head, profile, checks, not-run reasons,
 risk axes, and thread updates follow inside one collapsed `Scope, checks and
 limits` block, so the first rendered lines answer what happened and what to do
-next. The walkthrough, the behavior map, and the pre-merge table appear only
+next. That block also records the prose language and where it was
+resolved from, as `Language: en (source: default)` when no profile or
+repository declaration names one. The walkthrough, the behavior map, and the pre-merge table appear only
 when the change size or a changed transition earns them.
 
 For authorized publication it emits one manifest: a summary with a walkthrough,
