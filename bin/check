@@ -108,6 +108,8 @@ readonly required_paths=(
   "core/issue-workflow/references/implement-issue-contract.md"
   "core/issue-workflow/references/plan-implementation-contract.md"
   "core/issue-workflow/references/ship-change-contract.md"
+  ".github/scripts/verify-delivery-authorship.sh"
+  "tests/test_verify_delivery_authorship.sh"
   "core/issue-workflow/scripts/apply-pr-metadata.sh"
   "core/issue-workflow/references/execute-issue-contract.md"
   "core/issue-workflow/references/contribution-guidance-contract.md"
@@ -1042,6 +1044,22 @@ grep -qF 'no second confirmation is required' core/issue-workflow/references/shi
 grep -qF 'invoked standalone, require explicit user approval to ship' core/issue-workflow/references/ship-issue-contract.md
 grep -qF 'Final quality gate' core/issue-workflow/references/ship-issue-contract.md
 grep -qF 'Metadata applied' core/issue-workflow/references/ship-issue-contract.md
+
+# Both ship contracts must report the PR's publishing actor, not only the
+# metadata actor. dr-agents#315 delivery shipped four PRs while a personal
+# fallback silently widened from the authorized Projects step to PR creation
+# and commit authorship: the author was verified per contract but had no output
+# field to be reported in, so every handoff read clean. A verification with no
+# reporting slot is not an enforced rule.
+for ship_contract in \
+  core/issue-workflow/references/ship-change-contract.md \
+  core/issue-workflow/references/ship-issue-contract.md; do
+  if ! grep -qF 'PR publisher:' "$ship_contract"; then
+    echo "missing 'PR publisher:' output field: $ship_contract" >&2
+    exit 1
+  fi
+done
+grep -qF 'Route the PR independently of every other' core/issue-workflow/references/ship-change-contract.md
 
 # Each adapter's start-issue skill must carry an explicit platform-scoping note
 # that names the platform-specific tooling and states it is intentionally not
