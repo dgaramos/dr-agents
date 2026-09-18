@@ -40,7 +40,9 @@ decide whether to request another page.
 ```
 
 Without publisher authorization, the review body and inline comments are
-returned as `not published`. The summary records `Publication: not requested`.
+returned as `not published`. That status is reported in the terminal summary and
+the publication manifest; the review body itself never states whether it was
+published.
 
 ## Publisher dispatch sequence
 
@@ -55,7 +57,9 @@ When publication is authorized, the reviewer follows this sequence:
    publisher is configured.
 4. **Verify** the resulting review's author is `claudio-dr[bot]` and event
    is `COMMENT`. A mismatch is reported as a failed publication, not silently
-   accepted.
+   accepted. A body-less review event created by a thread reply is a transport
+   shell, not a second pass: it is reported as the stated limitation of the
+   reply route and ignored when a later pass locates the prior reviewed head.
 
 When no `review` publisher mode is declared in the target profile, the reviewer
 falls back to `gh pr review` under the caller's authenticated personal account
