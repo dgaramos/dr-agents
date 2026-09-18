@@ -34,7 +34,7 @@ summary:
 
 ```md
 **Evidence:** `src/handler.ts:42` — response omits `cursor`; linked API contract
-`docs/api-pagination.md` requires it; confidence: 92/100.
+`docs/api-pagination.md` requires it.
 ```
 
 Distinguish source-backed facts from inference. If a source is unavailable,

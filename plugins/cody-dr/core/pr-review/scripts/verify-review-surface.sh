@@ -11,10 +11,17 @@
 # against a hardcoded list, because a hardcoded list passes the day a category
 # is added to both files and is then wrong about what the files actually say.
 #
-# It also enforces three properties of the published body: it never states its
-# own publication status (that belongs to the manifest and the terminal
-# summary), the re-review prior-head rule ignores body-less review events, and
-# the re-review preamble names the review it supersedes.
+# It also enforces the properties of the published body: it never states its own
+# publication status (that belongs to the manifest and the terminal summary),
+# the re-review prior-head rule ignores body-less review events, and the
+# re-review preamble names the review it supersedes.
+#
+# Finally it enforces the scannable summary: the body leads with the verdict
+# strip and its severity badges, the strip stays inside a rendered budget, the
+# required Next step follows it, every scope/checks/limits field sits inside the
+# collapsed block, the Checks line is trimmed to CI and local gates, the three
+# section size gates are stated, and no confidence percentage reaches the
+# reader while the gate and the manifest record remain.
 set -euo pipefail
 
 [[ $# == 3 ]] || {
@@ -120,11 +127,20 @@ fi
 # follows a `## Review —` or `## Re-review —` heading. Restricting the check to
 # those runs keeps prose that legitimately discusses publication status from
 # being reported as a published-body field.
+# The scan continues through the collapsed `<details>` block that #342 moved the
+# scope, checks and limits fields into. An earlier version stopped at the first
+# line that was not a field, which was correct while every field was a sibling
+# of the heading and silently wrong the moment they moved inside the block: a
+# `Publication:` field shipped inside `<details>` would have read as a clean
+# body. It still stops at the first line of real content — a heading, a table,
+# or a fence — so prose that legitimately discusses publication status is not
+# mistaken for a published-body field.
 published_body_fields() {
   awk '
     /^## (Review|Re-review) —/ { in_body = 1; next }
     in_body && /^\*\*/ { print; next }
     in_body && NF == 0 { next }
+    in_body && /^<\/?(details|summary)/ { next }
     in_body { in_body = 0 }
   ' "$1"
 }
@@ -145,6 +161,105 @@ if ! grep -qF 'body-less' "$contract_path"; then
 fi
 if ! grep -qF 'Superseded:' "$contract_path"; then
   violation "$contract_path re-review preamble does not carry the Superseded field"
+fi
+
+# ---------------------------------------------------------------------------
+# Scannable summary: verdict first, next step, collapsed scope block
+# ---------------------------------------------------------------------------
+
+# The acceptance signal is rendered lines, not source lines, so the strip is
+# checked for both position and length: a strip that wraps costs the reader the
+# same first screen that a misordered one does.
+readonly verdict_strip_budget=200
+
+summary_field_run() {
+  awk '
+    /^## Review —/ { in_body = 1; next }
+    in_body && /^\*\*/ { print; next }
+    in_body && NF == 0 { next }
+    in_body && /^<\/?(details|summary)/ { print; next }
+    in_body { in_body = 0 }
+  ' "$contract_path"
+}
+
+field_run="$(summary_field_run)"
+
+if [[ -z "$field_run" ]]; then
+  violation "$contract_path defines no review summary field run"
+else
+  first_field="$(head -n 1 <<<"$field_run")"
+  if [[ "$first_field" != '**Verdict:**'* ]]; then
+    violation "the review summary does not lead with the verdict strip; first field is: $first_field"
+  fi
+  for badge in '🔴 Critical' '🟠 Major' '🟡 Minor' 'Merge risk'; do
+    if [[ "$first_field" != *"$badge"* ]]; then
+      violation "the verdict strip does not carry '$badge'"
+    fi
+  done
+  strip_length="$(printf '%s' "$first_field" | wc -c | tr -d ' ')"
+  if ((strip_length > verdict_strip_budget)); then
+    violation "the verdict strip is too long for its rendered budget: ${strip_length} bytes exceeds ${verdict_strip_budget}"
+  fi
+
+  if ! grep -qF '**Next step:**' <<<"$field_run"; then
+    violation "the review summary does not carry the required Next step field"
+  fi
+
+  # Everything that is not the verdict strip or the next step belongs inside the
+  # collapsed block, which starts at the <details> line of the run.
+  collapsed_start="$(grep -n '^<details>' <<<"$field_run" | head -n 1 | cut -d: -f1 || true)"
+  if [[ -z "$collapsed_start" ]]; then
+    violation "the review summary has no collapsed scope block"
+  else
+    if ! grep -qF '<summary>Scope, checks and limits</summary>' "$contract_path"; then
+      violation "the collapsed scope block's <summary> does not name its content"
+    fi
+    open_fields="$(head -n $((collapsed_start - 1)) <<<"$field_run")"
+    collapsed_fields="$(tail -n +"$collapsed_start" <<<"$field_run")"
+    for field in 'Scope:' 'Reviewed head:' 'Profile:' 'Checks:' 'Risk axes:' 'Thread updates:'; do
+      if grep -qF "**$field" <<<"$open_fields"; then
+        violation "the $field field is above the verdict's collapsed block; it belongs inside 'Scope, checks and limits'"
+      elif ! grep -qF "**$field" <<<"$collapsed_fields"; then
+        violation "the collapsed scope block does not carry the $field field"
+      fi
+    done
+
+    checks_line="$(grep -F '**Checks:**' <<<"$collapsed_fields" | head -n 1)"
+    if [[ "$checks_line" != *'CI: '* || "$checks_line" != *'Local: '* ]]; then
+      violation "the Checks line is not trimmed to CI and local gate counts: $checks_line"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Section size gates
+# ---------------------------------------------------------------------------
+
+while IFS='|' read -r gate label; do
+  grep -qE "^Emit the ${gate}" "$contract_path" ||
+    violation "$contract_path states no size gate for the ${label}"
+done <<'GATES'
+Walkthrough|Walkthrough
+Behavior map|Behavior map
+Pre-merge|Pre-merge checks table
+GATES
+
+# ---------------------------------------------------------------------------
+# Confidence is reviewer-internal, not reader-facing
+# ---------------------------------------------------------------------------
+
+evidence_line="$(grep -F '**Evidence:**' "$contract_path" | head -n 1)"
+if [[ "$evidence_line" == *confidence* ]]; then
+  violation "the published finding template still renders a confidence value: $evidence_line"
+fi
+if grep -qE 'confidence: *[0-9<]' "$example_path"; then
+  violation "$example_path renders a confidence percentage in a published finding"
+fi
+if ! grep -qF '>= 80/100' "$contract_path"; then
+  violation "$contract_path no longer states the >= 80/100 confidence gate"
+fi
+if ! grep -qF 'non-published `confidence`' "$contract_path"; then
+  violation "$contract_path does not record confidence in the publication manifest"
 fi
 
 if ((violations > 0)); then

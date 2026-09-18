@@ -9,7 +9,9 @@ class vocabulary those templates reference; it must not restate them.
 
 Only formalize findings with confidence `>= 80/100`. Every formal finding needs
 current evidence, a concrete impact, and the smallest credible correction. Do
-not fabricate tool output, prompts, metrics, or automated fixes.
+not fabricate tool output, prompts, metrics, or automated fixes. The confidence
+value is a reviewer-internal gate: it is recorded in the publication manifest
+and the terminal summary, never rendered into the published finding.
 
 Choose one category:
 

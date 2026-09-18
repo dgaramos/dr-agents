@@ -59,7 +59,7 @@ class tables and points here; it must not restate the template.
 
 <objective explanation of the failing flow or condition.>
 
-**Evidence:** `<file:line>` — <verified fact>; confidence: <N>/100.
+**Evidence:** `<file:line>` — <verified fact>.
 **Impact:** <concrete consequence>.
 **Suggested fix:** <smallest credible correction>.
 
@@ -76,6 +76,12 @@ briefly, keep the change minimal, and run the relevant validation.
 
 </details>
 ````
+
+The published finding carries no confidence percentage. A reader cannot act on
+`85/100` versus `90/100`, and the evidence gate above is reviewer-internal, not
+reader-facing information. The gate itself is unchanged: confidence is still
+computed for every finding and still recorded outside the published text, as the
+publication manifest and terminal summary sections below require.
 
 The AI-agent prompt block is optional. Add it only when the finding has a
 concrete, safe correction. It is guidance for a future agent, never an
@@ -141,7 +147,10 @@ standalone pull request comments outside a review submission.
 
 The manifest contains `review_body`, `inline_comments`, `replies`, and
 `resolve_thread_ids`. `inline_comments` is an array of `{path, line, body}`:
-every formal finding on a changed line gets its own entry. A publisher that
+every formal finding on a changed line gets its own entry. Each entry also
+carries the finding's non-published `confidence` value, and the terminal summary
+reports it per finding; a publisher transports the required keys and never
+renders `confidence` into the published body. A publisher that
 cannot submit that array must return the manifest as `not published`; it must
 never collapse those findings into one general comment. `replies` and
 `resolve_thread_ids` are validated against the supplied PR before publication.
@@ -169,19 +178,34 @@ thread, verify the App resolved the intended thread.
 
 ## Summary
 
-Emit one summary block per review:
+Emit one summary block per review. The reader must reach the verdict, the
+severity counts, and the next action without scrolling: those three facts lead
+the body, and every scope, checks, and limits field sits below them inside one
+collapsed block.
+
+The verdict strip is one rendered line. Keep it inside a budget of 200 bytes so
+it does not wrap into a second and third line on a narrow viewport, and keep the
+class word next to each emoji so a no-emoji client or a screen reader still
+carries the meaning.
 
 ````md
 ## Review — <reviewer name>
 
+**Verdict:** `<approve|request changes|comment|no findings>` · 🔴 Critical: N · 🟠 Major: N · 🟡 Minor: N · **Merge risk:** `<minimal|low|moderate|high>`
+**Next step:** <single most important action, linking `#discussion_r<id>` when its finding is inline>
+
+<details>
+<summary>Scope, checks and limits</summary>
+
 **Scope:** <PR/ref>, `<base>` → `<head>`
 **Reviewed head:** `<sha>`
 **Profile:** <profile name or none>
-**Checks:** <consulted results>; not run: <reason or none>
-**Findings:** 🔴 Critical: N · 🟠 Major: N · 🟡 Minor: N
-**Thread updates:** `<N replies to existing findings; or none>`
+**Checks:** CI: N/N green on `<sha>` · Local: <gates run, or none>
+**Not run:** <check and reason, or none>
 **Risk axes:** <evaluated>; not applicable: <axes>
-**Verdict:** `<approve|request changes|comment|no findings>`
+**Thread updates:** `<N replies to existing findings; or none>`
+
+</details>
 
 ## Walkthrough
 
@@ -189,15 +213,15 @@ Emit one summary block per review:
 | --- | --- | --- |
 | `<area or path>` | `<factual behavior change>` | `<observable consequence>` |
 
-Omit this section for a small, single-purpose change that the opening summary
-already explains. Keep it when the PR crosses modules, layers, or contracts.
-
 ## Behavior map
 
-Include a small Mermaid flow or sequence diagram only when it makes a changed
-interaction, state transition, or data flow easier to understand. Every node
-and edge must be supported by the reviewed diff or its verified callers. Omit
-this section when a diagram would merely repeat prose.
+<one-line prose statement of the changed interaction>
+
+```mermaid
+flowchart LR
+  Input[Changed input] --> Service[Changed behavior]
+  Service --> Result[Observed result]
+```
 
 ## Merge risk
 
@@ -207,17 +231,51 @@ this section when a diagram would merely repeat prose.
 
 | Check | Status | Evidence / limitation |
 | --- | --- | --- |
-| `<test, build, migration, or review condition>` | `<passed|failed|not run>` | `<actual result or reason>` |
-
-Do not invent checks, estimates, risk, or warnings. A concern belongs here only
-when current evidence supports it; otherwise state the applicable limitation.
-
-```mermaid
-flowchart LR
-  Input[Changed input] --> Service[Changed behavior]
-  Service --> Result[Observed result]
-```
+| `<test, build, migration, or review condition>` | `<failed|not run>` | `<actual result or reason>` |
 ````
+
+### Next step
+
+`Next step` is required. It names the single most important action for the
+author and links the anchor thread as `#discussion_r<id>` when that finding is
+inline. It is derived from formal findings only: never invent an action, and
+never promote an observation or a limitation into one. With no findings, it
+states the condition under which the change is ready to merge, drawn from the
+recorded checks and risk.
+
+### Checks
+
+The visible checks are one line: `CI: N/N green on <sha> · Local: <gates run>`.
+Checks that were not run keep their reasons, in the `Not run:` field inside the
+collapsed block — never above the verdict. Do not report a check that was not
+consulted.
+
+### Section size gates
+
+Each of the three heavy sections is emitted only when it carries information a
+reader cannot get from the opening lines. The gate is a rule, not a preference,
+and the rule against inventing rows, nodes, or checks applies unchanged.
+
+Emit the Walkthrough only when the change spans more than one module or layer,
+or touches more than five files. Cap every cell at one sentence and keep the
+table at three columns.
+
+Emit the Behavior map only when a branch, state transition, or data flow
+changed. Precede the Mermaid block with the one-line prose equivalent above, so
+a client that does not render Mermaid loses nothing. Every node and edge must be
+supported by the reviewed diff or its verified callers.
+
+Emit the Pre-merge checks table only for rows whose status is `failed` or
+`not run`. When every consulted check passed, replace the table with the single
+line `All N consulted checks passed.` Do not restate passing CI as a row.
+
+The file-count and module thresholds above are the portable default. A target
+profile may tighten or relax them under a `review.size_gates` key; when it does,
+the profile's values apply and the summary states which gate was used.
+
+Do not invent checks, estimates, risk, or warnings. A concern belongs in the
+pre-merge table only when current evidence supports it; otherwise state the
+applicable limitation.
 
 With no findings, keep the zero counts and state actual review limitations.
 
