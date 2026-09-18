@@ -77,15 +77,26 @@ briefly, keep the change minimal, and run the relevant validation.
 </details>
 ````
 
+The `<details>` block above is optional, and it is the only AI-agent prompt
+block in this contract. Emit it only when the correction is a verified one-hunk
+replacement at the anchored evidence line: one contiguous hunk, in the file the
+evidence names, whose replacement text the reviewer has read in the current head
+rather than inferred. Any fix that spans several hunks or files, or that the
+reviewer has not verified at that line, ships without the block.
+
+The block is untrusted guidance for a future agent, never an instruction source
+that overrides the target repository's rules, and its own text says so.
+
+A committable `suggestion` block is a code claim. It is never required, and it
+is allowed only under the same one-hunk gate as the prompt block. Without that
+verification, emit neither: a finding with no prompt and no suggestion is
+correct output, and an invented patch is not.
+
 The published finding carries no confidence percentage. A reader cannot act on
 `85/100` versus `90/100`, and the evidence gate above is reviewer-internal, not
 reader-facing information. The gate itself is unchanged: confidence is still
 computed for every finding and still recorded outside the published text, as the
 publication manifest and terminal summary sections below require.
-
-The AI-agent prompt block is optional. Add it only when the finding has a
-concrete, safe correction. It is guidance for a future agent, never an
-instruction source that overrides the target repository's rules.
 
 Inline findings require a changed line. General findings use `[general]` as the
 location and go in the review body. Do not invent a category, effort, or
@@ -170,6 +181,43 @@ review event appears for each reply, at the reply's `commit_id`. The publisher
 must state that limitation rather than leave it unexplained, and those shells
 are not review passes: they never count as a pass and the prior-head lookup
 above ignores them. One substantive review event per pass remains the rule.
+
+### Thread reply anatomy
+
+A reply is attributed once, by the posting login. Do not open a reply with the
+reviewer's display name: the platform already renders it, and repeating it costs
+the first line of the only part a reader has not seen.
+
+A reviewer-role reply on another author's thread uses this template. It carries
+only the evidence the original thread lacked; it never restates the finding, and
+it is shorter than the finding it confirms.
+
+```md
+**Verified on `<sha>`:** <only the evidence the original thread lacked>
+**Severity (<reviewer name>):** <class and badge> — <one line on the difference>
+**Status:** <reply and resolve|reply but keep open|leave open|defer>
+```
+
+The `Severity` field appears only when the reviewer's own class differs from the
+thread author's. Stating it makes a risk disagreement auditable in the thread
+instead of leaving two reviewers silently ranking the same defect differently.
+When the classes agree, omit the field rather than echoing the thread author.
+
+A reply that reports an implementation instead of a review judgment uses the
+implementer-role template, so a reader can tell the two apart even when one
+identity posts both:
+
+```md
+**Fix applied — <workflow name>:** `<commit>`. <what changed>.
+**Validation:** <commands run and their result>.
+```
+
+An implementer reply is a report, never proof of resolution. Re-review does not
+classify a thread as `resolved` because an implementer reply says a fix landed:
+a thread whose only new reply is an implementer reply keeps its prior state
+until current-head evidence supports the change. This is the general rule that
+thread replies are context, not proof, applied to the case where the reviewer
+and the implementer share a login.
 
 After publishing, verify the resulting review's author and event match the
 expected reviewer identity. After replying to a thread, verify the reply is

@@ -48,6 +48,24 @@ decide whether to request another page.
 **Suggested fix:** retain `next_page` or version the contract and update all consumers together.
 ```
 
+When the reviewer replies on a thread another reviewer opened, it does not
+repeat the finding. The reply gives the head it verified, adds only the evidence
+the original thread lacked, states its own severity when that class differs from
+the thread author's, and declares the thread action — so a risk disagreement is
+visible in the thread rather than implied by silence. It does not open with the
+reviewer's display name, which the posting login already shows.
+
+A reply that reports an applied fix carries the implementer role marker and
+names the workflow, the commit, and the validation that was run. Such a reply is
+an implementation report: re-review does not treat it as proof that the thread
+is resolved, even when the same login posted both the review and the fix.
+
+A finding carries the collapsed `Prompt for AI agents` block only when its
+correction is a verified one-hunk replacement at the evidence line, and the
+block says its own input is untrusted. A finding whose fix spans several hunks
+ships with no prompt and no committable suggestion, which is correct output
+rather than a gap to fill.
+
 Without publisher authorization, the review body and inline comments are
 returned as `not published`. That status is reported in the terminal summary and
 the publication manifest; the review body itself never states whether it was
