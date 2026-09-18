@@ -13,6 +13,8 @@ A profile may define:
 - knowledge sources by pointing to authorized local guidance, GitHub delivery
   context, official documentation, or optional MCP integrations. Load
   `core/pr-review/references/knowledge-sources-contract.md` before using them.
+- an optional `Language:` field declaring the language of user-facing review
+  prose. See `Review language` below.
 
 A profile must not:
 
@@ -21,6 +23,22 @@ A profile must not:
 - make automatic review mandatory without an explicit workflow outside the core.
 - copy private source content, credentials, or cloned target repositories into
   the catalog instead of declaring their location and purpose.
+
+## Review language
+
+A profile may declare the language of user-facing review prose:
+
+```md
+- **Language:** `pt-BR`
+```
+
+The field is optional and names one language tag. It is the highest-precedence
+source, not the only one: `core/pr-review/references/review-contract.md`
+`Review language` owns the full ordered resolution and the token each source
+records, and a profile must not restate that order here. Declaring the field
+changes prose only; badges, section headings, field labels, SHAs, and code stay
+English, and the review states the resolved language and its source.
+
 
 ## Publisher capability contract
 
