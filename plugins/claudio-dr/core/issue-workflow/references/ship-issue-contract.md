@@ -33,6 +33,7 @@ before publishing.
 **Branch:** `<branch-name>`
 **Final quality gate:** <passed|failed: reason>
 **PR:** <not requested|not published|<URL>>
+**PR publisher:** <verified App actor|personal fallback: @login|not published: reason>
 **Metadata applied:** <labels, milestone, assignees, reviewers, Projects or none>
 **Metadata verified:** <field → observed value, or failed field>
 **Metadata publisher:** <verified App actor|personal fallback: @login|not published: reason>

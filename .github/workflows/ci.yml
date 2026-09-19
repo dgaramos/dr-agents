@@ -26,6 +26,22 @@ jobs:
       - name: Check bundle sync
         run: bin/sync-plugin-core-bundles.sh --check
 
+  authorship:
+    name: Delivery authorship
+    runs-on: ubuntu-latest
+    # Only a pull_request event carries the head ref and author this checks.
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the delivery PR was published by the App
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          .github/scripts/verify-delivery-authorship.sh \
+            "$HEAD_BRANCH" "$PR_AUTHOR" "$PR_LABELS"
+
   syntax:
     name: Shell syntax
     runs-on: ubuntu-latest
@@ -57,6 +73,8 @@ jobs:
         run: bash tests/test_publish_pr_metadata.sh
       - name: test_verify_publisher_dispatch
         run: bash tests/test_verify_publisher_dispatch.sh
+      - name: test_verify_delivery_authorship
+        run: bash tests/test_verify_delivery_authorship.sh
       - name: test_publisher_smoke
         run: bash tests/test_publisher_smoke.sh
       - name: test_smoke_find_issue_target

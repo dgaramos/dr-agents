@@ -28,8 +28,14 @@ Do not ship without confirmed passing quality gates.
 4. Push the branch using the profile's configured transport. Dispatch its
    `create-pr` publisher as the current adapter App with title, completed body,
    head branch, and base branch. Wait for completion and verify the PR's author,
-   repository, branches, title, and body. Use structured inputs or a body file;
-   never interpolate Markdown into executable shell text. Apply
+   repository, branches, title, and body. Report the verified author in the
+   `PR publisher:` output field. Route the PR independently of every other
+   operation: an authorized fallback for Projects, metadata, or an issue never
+   authorizes creating the PR or authoring its commits outside the App. When
+   any operation degrades to the personal account, name that operation and its
+   actor in the output; silence is a contract violation, not a clean result.
+   Use structured inputs or a body file; never interpolate Markdown into
+   executable shell text. Apply
    `core/pr-review/references/publication-routing-contract.md` when the App
    is unavailable, including repositories without a profile or App installation.
    Announce and verify the personal `gh` fallback. The issue-execution request
@@ -64,6 +70,7 @@ Do not ship without confirmed passing quality gates.
 **Branch:** `<branch-name>`
 **Final quality gate:** <passed|failed: reason>
 **PR:** <not requested|not published|<URL>>
+**PR publisher:** <verified App actor|personal fallback: @login|not published: reason>
 **Metadata applied:** <labels, milestone, assignees, reviewers, Projects or none>
 **Metadata verified:** <field → observed value, or failed field>
 **Metadata publisher:** <verified App actor|personal fallback: @login|not published: reason>
