@@ -401,6 +401,43 @@ if ! grep -qF 'non-published `confidence`' "$contract_path"; then
   violation "$contract_path does not record confidence in the publication manifest"
 fi
 
+# ---------------------------------------------------------------------------
+# Non-duplication of another reviewer's thread (dr-agents#315 AC-07)
+# ---------------------------------------------------------------------------
+
+# The rule that keeps a second reviewer from opening a competing thread lived
+# only in prose: the reviewer replies to the existing thread instead. Nothing
+# observed that rule, which is the shape that already produced two defective
+# assertions in this file's own history.
+#
+# Read only the finding-matching paragraph. "duplicate", "matching thread" and
+# "another review bot" all appear elsewhere in this contract, so a whole-file
+# grep would report a rule the contract no longer states.
+thread_matching_section="$(awk '
+  /^Before creating a finding, load every current review thread/ { in_section = 1 }
+  in_section && /^$/ { in_section = 0 }
+  in_section { print }
+' "$contract_path")"
+
+if [[ -z "${thread_matching_section// /}" ]]; then
+  violation "$contract_path states no rule for matching a finding against existing threads"
+else
+  grep -qF 'do not create a new inline' <<<"$thread_matching_section" ||
+    violation "the thread-matching rule no longer forbids a competing inline comment on an open matching thread"
+  grep -qF 'another review bot' <<<"$thread_matching_section" ||
+    violation "the thread-matching rule no longer spans threads authored by a human or another review bot"
+fi
+
+# A duplicate finding must be routed into the manifest's `replies`, against the
+# existing comment, rather than into a competing thread.
+replies_routing="$(grep -F '`replies` also carries' "$contract_path" || true)"
+if [[ -z "$replies_routing" ]]; then
+  violation "$contract_path does not route duplicate findings into the manifest's replies"
+else
+  [[ "$replies_routing" == *"duplicate findings"* ]] ||
+    violation "the manifest replies rule no longer names duplicate findings: $replies_routing"
+fi
+
 if ((violations > 0)); then
   echo "review surface: $violations violation(s)" >&2
   exit 1

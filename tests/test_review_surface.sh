@@ -637,6 +637,68 @@ else
   fail "Z2: rejected for the wrong reason: $output"
 fi
 
+# --- AC-07: the non-duplication rule must be asserted, not just written ----
+# dr-agents#315 T11. A benchmarked run produced zero duplicate threads under
+# this rule, but nothing observed the rule itself -- the same shape as the two
+# defective assertions found during the epic's delivery.
+
+# Y: the contract must forbid a competing inline comment on an open matching
+#    thread, and say the match spans other authors and bots.
+duplicate_rule="$(make_fixture duplicate_rule)"
+perl -0pi -e 's/For an open matching thread, do not create a new inline\ncomment: [^\n]*\n[^\n]*\n/For an open matching thread, handle it as you see fit.\n/' \
+  "$duplicate_rule/review-contract.md"
+if output="$(run_verifier "$duplicate_rule")"; then
+  fail "Y: a contract without the no-competing-thread rule was accepted"
+elif grep -qi 'matching thread\|duplicate' <<<"$output"; then
+  pass "Y: a contract without the no-competing-thread rule is rejected"
+else
+  fail "Y: rejected for the wrong reason: $output"
+fi
+
+# Y2: the cross-reviewer clause is the load-bearing half. Without it the rule
+#     only covers the reviewer's own threads, which is not what produced the
+#     benchmarked zero -- that thread belonged to a different review bot.
+cross_reviewer="$(make_fixture cross_reviewer)"
+# The clause wraps across two source lines, so a line-based sed silently
+# matches nothing and the fixture stays valid -- it did, the first time.
+perl -0pi -e 's/even if it was authored by a human or\nanother review bot\./even if it was authored earlier./s' \
+  "$cross_reviewer/review-contract.md"
+if output="$(run_verifier "$cross_reviewer")"; then
+  fail "Y2: a contract without the cross-reviewer clause was accepted"
+elif grep -qi 'another review bot\|cross-reviewer\|matching' <<<"$output"; then
+  pass "Y2: a contract without the cross-reviewer clause is rejected"
+else
+  fail "Y2: rejected for the wrong reason: $output"
+fi
+
+# Y3: the manifest must route a duplicate finding into `replies` against the
+#     existing comment id rather than into a new thread.
+manifest_replies="$(make_fixture manifest_replies)"
+sed -i.bak 's/`replies` also carries duplicate findings: it references the existing top-level/`replies` also carries assorted extra text: it mentions the existing top-level/' \
+  "$manifest_replies/review-contract.md"
+if output="$(run_verifier "$manifest_replies")"; then
+  fail "Y3: a manifest that does not route duplicates into replies was accepted"
+elif grep -qi 'replies\|duplicate' <<<"$output"; then
+  pass "Y3: a manifest that does not route duplicates into replies is rejected"
+else
+  fail "Y3: rejected for the wrong reason: $output"
+fi
+
+# Y4: edge case -- the words "duplicate" and "matching thread" appear in this
+#     contract's prose elsewhere. Gutting only the rule's section, while those
+#     words survive file-wide, must still be rejected. This is the case that
+#     fails if the assertions are ever loosened to a whole-file grep.
+scoped_only="$(make_fixture scoped_only)"
+perl -0pi -e 's/Before creating a finding, load every current review thread.*?evidence location\./Before creating a finding, glance at the threads./s' \
+  "$scoped_only/review-contract.md"
+printf '\n<!-- duplicate matching thread another review bot -->\n' \
+  >>"$scoped_only/review-contract.md"
+if output="$(run_verifier "$scoped_only")"; then
+  fail "Y4: a gutted rule with the tokens present file-wide was accepted"
+else
+  pass "Y4: a gutted rule is rejected although its tokens survive file-wide"
+fi
+
 if ((failures > 0)); then
   echo "review surface tests failed: $failures" >&2
   exit 1
