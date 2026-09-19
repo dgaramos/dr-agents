@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/publication-outcome.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/publication-input.sh"
 outcome_heading "${EXPECTED_AUTHOR:-publisher} review publisher"
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
@@ -24,6 +25,7 @@ jq -e 'type == "array" and all(.[]; type == "string" and length > 0)' <<<"$resol
 readonly expected_pr_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}"
 [[ "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .head.sha)" == "$REVIEWED_HEAD_SHA" ]] || outcome_not_published "PR head changed since review"
 publish_review=false
+require_body_contents "${REVIEW_BODY:-}"
 if [[ -n "${REVIEW_BODY:-}" ]] || [[ "$(jq length <<<"$inline_comments_json")" -gt 0 ]]; then publish_review=true; fi
 [[ "$publish_review" == true || "$(jq length <<<"$replies_json")" -gt 0 || "$(jq length <<<"$resolve_thread_ids_json")" -gt 0 ]] || outcome_not_published "provide a review body, inline finding, reply, or resolution"
 while IFS= read -r reply; do

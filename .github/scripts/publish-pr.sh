@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/publication-outcome.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/publication-input.sh"
 outcome_heading "${EXPECTED_AUTHOR:-publisher} pull request publisher"
 
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
@@ -12,6 +13,7 @@ outcome_heading "${EXPECTED_AUTHOR:-publisher} pull request publisher"
 : "${PUBLISHER_APP_SLUG:?PUBLISHER_APP_SLUG is required}"
 [[ "$PUBLISHER_APP_SLUG" == "${EXPECTED_AUTHOR%\[bot\]}" ]] || outcome_not_published "unexpected authenticated app"
 [[ "$HEAD_BRANCH" != "$BASE_BRANCH" ]] || outcome_not_published "head and base must differ"
+require_body_contents "$BODY"
 existing="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" -f state=open -f "head=${GITHUB_REPOSITORY%%/*}:${HEAD_BRANCH}" -f "base=${BASE_BRANCH}")"
 count="$(jq length <<<"$existing")"
 if [[ "$count" == 0 ]]; then

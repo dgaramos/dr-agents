@@ -75,6 +75,8 @@ jobs:
         run: bash tests/test_verify_publisher_dispatch.sh
       - name: test_verify_delivery_authorship
         run: bash tests/test_verify_delivery_authorship.sh
+      - name: test_publication_input
+        run: bash tests/test_publication_input.sh
       - name: test_publisher_smoke
         run: bash tests/test_publisher_smoke.sh
       - name: test_smoke_find_issue_target
