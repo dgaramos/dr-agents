@@ -342,9 +342,23 @@ declares a language wins, and the summary records which one it was:
 | Order | Source | Recorded as |
 | --- | --- | --- |
 | 1 | the target profile's `Language:` field | source: `profile` |
-| 2 | a repository-level language declaration the profile names | source: `<declared file>` |
+| 2 | a repository-level language declaration found at the target | source: `<declaring file>` |
 | 3 | the repository `README` or pull request template | source: `README` |
 | 4 | English | source: `default` |
+
+Look for a repository-level language declaration before reaching `README`. A
+repository that has already told some tool which language it is written in has
+declared its language, and that declaration outranks the incidental language of
+its `README`. Read the target's own configuration for an explicit language key
+— a review tool's configuration file is the common case — and record the file
+that declared it. When the profile names a declaration path, that path is
+authoritative for this position; when it does not, the absence of a profile key
+is not evidence that no declaration exists.
+
+Reaching `README` while such a declaration exists is a resolution failure, not
+a default. `README` is a weak signal: a project may keep an English `README`
+for reach while writing everything a contributor reads in another language, so
+position 3 is the answer only when positions 1 and 2 genuinely found nothing.
 
 The order is extensible, not a fixed pair: a source is added by inserting it at
 its precedence position and declaring the token it records. Do not hardcode one

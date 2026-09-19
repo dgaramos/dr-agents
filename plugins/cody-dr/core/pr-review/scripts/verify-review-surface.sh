@@ -287,6 +287,16 @@ README|repository README
 default|English fallback
 SOURCES
 
+  # The repository-declaration position must be reachable without the profile
+  # handing it over. Written as "a declaration the profile names", the slot was
+  # dead -- no profile named one, so every target fell through to README and
+  # the acceptance run produced English prose on a repository that declares
+  # another language.
+  grep -qF 'Look for a repository-level language declaration' <<<"$review_language_section" ||
+    violation "the Review language order never looks for a declaration at the target; position 2 is unreachable"
+  grep -qF 'is a resolution failure' <<<"$review_language_section" ||
+    violation "the Review language order does not name falling through to README past an existing declaration as a failure"
+
   grep -qF 'first source' <<<"$review_language_section" ||
     violation "the Review language section does not state that the first declaring source wins"
   grep -qF 'extensible' <<<"$review_language_section" ||

@@ -602,6 +602,41 @@ else
   fail "X2: rejected without naming the restatement: $output"
 fi
 
+# --- AC-04: the repository-declaration slot must be reachable ---------------
+# The acceptance run resolved review prose to English on a repository that
+# declares another language, because position 2 of the order required the
+# profile to name the declaration file and no profile does. The slot was dead
+# and every repository fell through to README.
+
+# Z: the order must have the reviewer look for a declaration at the target,
+#    not wait to be handed one by the profile.
+lang_lookup="$(make_fixture lang_lookup)"
+perl -0pi -e 's/\| 2 \| [^\n]*\n/| 2 | a repository-level language declaration the profile names | source: `<declared file>` |\n/' \
+  "$lang_lookup/review-contract.md"
+perl -0pi -e 's/Look for a repository-level language declaration.*?\n\n//s' \
+  "$lang_lookup/review-contract.md"
+if output="$(run_verifier "$lang_lookup")"; then
+  fail "Z: a contract that never looks for a repository declaration was accepted"
+elif grep -qi 'declaration' <<<"$output"; then
+  pass "Z: a contract that never looks for a repository declaration is rejected"
+else
+  fail "Z: rejected for the wrong reason: $output"
+fi
+
+# Z2: falling through to README while a declaration exists must be named as a
+#     failure, not left as an acceptable default. This is the exact outcome the
+#     acceptance run produced.
+lang_fallthrough="$(make_fixture lang_fallthrough)"
+perl -0pi -e 's/Reaching `README` while such a declaration exists.*?\n\n//s' \
+  "$lang_fallthrough/review-contract.md"
+if output="$(run_verifier "$lang_fallthrough")"; then
+  fail "Z2: a contract that permits silently falling through to README was accepted"
+elif grep -qi 'README' <<<"$output"; then
+  pass "Z2: a contract that permits silently falling through to README is rejected"
+else
+  fail "Z2: rejected for the wrong reason: $output"
+fi
+
 if ((failures > 0)); then
   echo "review surface tests failed: $failures" >&2
   exit 1
