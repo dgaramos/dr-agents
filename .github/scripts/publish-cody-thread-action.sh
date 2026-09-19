@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/publication-outcome.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/publication-input.sh"
 outcome_heading "${EXPECTED_AUTHOR:-publisher} thread publisher"
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
@@ -15,7 +16,7 @@ outcome_heading "${EXPECTED_AUTHOR:-publisher} thread publisher"
 [[ -n "$THREAD_ID" ]] || outcome_not_published "thread_id is required"
 [[ "$PUBLISHER_APP_SLUG" == "${EXPECTED_AUTHOR%\[bot\]}" ]] || outcome_not_published "unexpected authenticated app"
 case "$THREAD_ACTION" in
-  reply) : "${BODY:?body is required}" ;;
+  reply) : "${BODY:?body is required}"; require_body_contents "$BODY" ;;
   resolve) ;;
   *) outcome_not_published "unsupported thread action" ;;
 esac

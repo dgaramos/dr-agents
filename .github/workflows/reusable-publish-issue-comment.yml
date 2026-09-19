@@ -197,6 +197,16 @@ jobs:
           [[ -n "$ISSUE_NUMBER" ]] || not_published "issue_number is required"
           [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]] || not_published "issue_number must be a positive integer, got: $ISSUE_NUMBER"
           [[ -n "$BODY" ]] || not_published "body is required"
+          # A body that is one bare path-shaped token is the caller having
+          # passed a filename instead of its contents (dr-agents#372). Kept
+          # inline because this workflow performs no checkout by design and so
+          # cannot source .github/scripts/publication-input.sh; the two must be
+          # changed together.
+          case "${BODY#"${BODY%%[![:space:]]*}"}" in
+            *[[:space:]]*|*://*|\`*|\'*|'"'*) ;;
+            /*|./*|../*|*/*|*.md|*.markdown|*.txt|*.json|*.yml|*.yaml)
+              not_published "body looks like a file path, not its contents -- pass the file's contents instead (gh: -F body=@FILE, or --body-file)" ;;
+          esac
 
           # The author of the HOST issue is deliberately not checked. The issue
           # publisher verifies it before a PATCH because editing someone else's

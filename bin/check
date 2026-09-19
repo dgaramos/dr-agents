@@ -109,6 +109,8 @@ readonly required_paths=(
   "core/issue-workflow/references/plan-implementation-contract.md"
   "core/issue-workflow/references/ship-change-contract.md"
   ".github/scripts/verify-delivery-authorship.sh"
+  ".github/scripts/publication-input.sh"
+  "tests/test_publication_input.sh"
   "tests/test_verify_delivery_authorship.sh"
   "core/issue-workflow/scripts/apply-pr-metadata.sh"
   "core/issue-workflow/references/execute-issue-contract.md"
@@ -1185,6 +1187,12 @@ if [[ "${_IN_GIT_REPO}" == "1" ]]; then
     while IFS= read -r commit; do
       trailers="$(git show -s --format=%B "$commit" | git interpret-trailers --parse)"
       agent_trailers="$(printf '%s\n' "$trailers" | grep -Ei '^Co-Authored-By: (cody-dr|claudio-dr|Claude|Codex)([^[:alnum:]]|$)' || true)"
+      # Match the token case-insensitively. The grep above already is, but the
+      # comparison below was not, and GitHub's squash-merge rewrites the
+      # trailer as `Co-authored-by:`. Any squash commit falling inside
+      # merge-base..HEAD -- which happens whenever the local `main` ref lags
+      # behind the remote -- then failed a check it should have passed.
+      agent_trailers="$(printf '%s\n' "$agent_trailers" | sed 's/^[Cc]o-[Aa]uthored-[Bb]y:/Co-Authored-By:/')"
       case "$agent_trailers" in
         'Co-Authored-By: cody-dr[bot] <318732897+cody-dr[bot]@users.noreply.github.com>'|'Co-Authored-By: claudio-dr[bot] <318764128+claudio-dr[bot]@users.noreply.github.com>') ;;
         *) echo "trailer: $commit must contain exactly one canonical adapter co-author" >&2; exit 1 ;;
