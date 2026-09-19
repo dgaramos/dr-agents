@@ -699,6 +699,51 @@ else
   pass "Y4: a gutted rule is rejected although its tokens survive file-wide"
 fi
 
+# --- AC-01: both first-screen lines are budgeted, in characters -------------
+# The strip had a byte budget and Next step had none, although both have to fit
+# inside the same three rendered lines. Bytes are also the wrong unit once prose
+# follows the target repository's language: accents cost bytes, not width.
+
+# AA: an over-long Next step must be rejected.
+long_next="$(make_fixture long_next)"
+perl -0pi -e 's/^\*\*Next step:\*\*.*$/"**Next step:** " . ("x" x 160)/me' \
+  "$long_next/review-contract.md"
+if output="$(run_verifier "$long_next")"; then
+  fail "AA: an over-long Next step line was accepted"
+elif grep -qi 'next step' <<<"$output"; then
+  pass "AA: an over-long Next step line is rejected"
+else
+  fail "AA: rejected for the wrong reason: $output"
+fi
+
+# AB: the budget must be counted in characters. An accented line inside the
+#     character budget but over it in bytes must pass -- otherwise the rule
+#     charges a language for width it does not occupy.
+accented="$(make_fixture accented)"
+perl -0pi -e 's/^\*\*Next step:\*\*.*$/"**Next step:** " . ("á" x 100)/me' \
+  "$accented/review-contract.md"
+if output="$(run_verifier "$accented")"; then
+  pass "AB: an accented Next step inside the character budget is accepted"
+else
+  fail "AB: an accented line within budget was rejected as if bytes were width: $output"
+fi
+
+# AC: the contract must say the budget applies to the emitted line, not just
+#     the template, and must state the desktop-only scope of the guarantee.
+budget_scope="$(make_fixture budget_scope)"
+# Substitute the exact phrase. An earlier version of this fixture assumed a
+# line break mid-sentence, matched nothing, and let the case pass against an
+# unmodified contract.
+sed -i.bak 's/measured on the emitted line/measured on the template/' \
+  "$budget_scope/review-contract.md"
+if output="$(run_verifier "$budget_scope")"; then
+  fail "AC: a contract that budgets only the template was accepted"
+elif grep -qi 'emitted' <<<"$output"; then
+  pass "AC: a contract that budgets only the template is rejected"
+else
+  fail "AC: rejected for the wrong reason: $output"
+fi
+
 if ((failures > 0)); then
   echo "review surface tests failed: $failures" >&2
   exit 1

@@ -179,7 +179,12 @@ fi
 # The acceptance signal is rendered lines, not source lines, so the strip is
 # checked for both position and length: a strip that wraps costs the reader the
 # same first screen that a misordered one does.
-readonly verdict_strip_budget=200
+# Characters, not bytes. Prose follows the target repository's language, so a
+# byte budget charges an accented or non-Latin language for width it does not
+# occupy and would force shorter sentences in one language than another for no
+# rendered reason.
+readonly verdict_strip_budget=160
+readonly next_step_budget=120
 
 summary_field_run() {
   awk '
@@ -205,13 +210,22 @@ else
       violation "the verdict strip does not carry '$badge'"
     fi
   done
-  strip_length="$(printf '%s' "$first_field" | wc -c | tr -d ' ')"
+  strip_length="$(printf '%s' "$first_field" | wc -m | tr -d ' ')"
   if ((strip_length > verdict_strip_budget)); then
-    violation "the verdict strip is too long for its rendered budget: ${strip_length} bytes exceeds ${verdict_strip_budget}"
+    violation "the verdict strip is too long for its rendered budget: ${strip_length} characters exceeds ${verdict_strip_budget}"
   fi
 
   if ! grep -qF '**Next step:**' <<<"$field_run"; then
     violation "the review summary does not carry the required Next step field"
+  else
+    # Next step shares the first screen with the strip, so it is budgeted too.
+    # It previously had no budget at all, which is how a 117-character line
+    # reached a reader in a column that holds about that many.
+    next_step_line="$(grep -F '**Next step:**' <<<"$field_run" | head -n 1)"
+    next_step_length="$(printf '%s' "$next_step_line" | wc -m | tr -d ' ')"
+    if ((next_step_length > next_step_budget)); then
+      violation "the Next step line is too long for its rendered budget: ${next_step_length} characters exceeds ${next_step_budget}"
+    fi
   fi
 
   # Everything that is not the verdict strip or the next step belongs inside the
@@ -436,6 +450,18 @@ if [[ -z "$replies_routing" ]]; then
 else
   [[ "$replies_routing" == *"duplicate findings"* ]] ||
     violation "the manifest replies rule no longer names duplicate findings: $replies_routing"
+fi
+
+# The budget must bind the emitted line, not only the template: placeholders are
+# shorter than the values that replace them, so a template-only budget
+# guarantees nothing about what ships. The contract must say so, and must scope
+# the three-line promise to desktop width rather than implying it holds on a
+# phone.
+if ! grep -qF 'measured on the emitted line' "$contract_path"; then
+  violation "$contract_path budgets the template rather than the emitted line"
+fi
+if ! grep -qF 'desktop guarantee' "$contract_path"; then
+  violation "$contract_path does not scope the three-line signal to a desktop reading width"
 fi
 
 if ((violations > 0)); then

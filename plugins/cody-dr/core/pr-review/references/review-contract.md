@@ -231,10 +231,30 @@ severity counts, and the next action without scrolling: those three facts lead
 the body, and every scope, checks, and limits field sits below them inside one
 collapsed block.
 
-The verdict strip is one rendered line. Keep it inside a budget of 200 bytes so
-it does not wrap into a second and third line on a narrow viewport, and keep the
-class word next to each emoji so a no-emoji client or a screen reader still
-carries the meaning.
+The verdict strip and the `Next step` line share the reader's first screen, so
+both are budgeted. Keep the strip within 160 characters and `Next step` within
+120, measured on the emitted line rather than on the template below: the
+template's placeholders are shorter than the values that replace them, and a
+budget checked only against the template guarantees nothing about what ships.
+
+Count characters, not bytes. Since prose follows the target repository's
+language, a byte budget punishes an accented or non-Latin language for width it
+does not occupy, and would force shorter sentences in Portuguese than in
+English for no rendered reason.
+
+`Next step` names one action. It does not explain the action, and it does not
+carry a second clause about the rest of the review — that is what the findings
+and the summary are for. A sentence long enough to need a semicolon has stopped
+being a next step.
+
+These budgets keep both lines unwrapped at a desktop reading width, roughly 117
+characters in GitHub's conversation column. They do not keep them unwrapped on a
+phone, where the column holds about 50 characters and the strip alone occupies
+two lines. The three-line acceptance signal is therefore a desktop guarantee;
+state it as such rather than implying it holds everywhere.
+
+Keep the class word next to each emoji so a no-emoji client or a screen reader
+still carries the meaning.
 
 ````md
 ## Review — <reviewer name>
