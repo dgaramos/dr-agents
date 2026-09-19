@@ -32,7 +32,11 @@ A profile may declare the language of user-facing review prose:
 - **Language:** `pt-BR`
 ```
 
-The field is optional and names one language tag. It is the highest-precedence
+The field is optional and names one language tag. Declare it whenever the
+repository writes contributor-facing text in a language its `README` does not
+represent: without it the resolver must discover the language from the
+repository's own configuration, and a project whose `README` is English for
+reach will otherwise be reviewed in English. It is the highest-precedence
 source, not the only one: `core/pr-review/references/review-contract.md`
 `Review language` owns the full ordered resolution and the token each source
 records, and a profile must not restate that order here. Declaring the field
