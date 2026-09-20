@@ -156,6 +156,17 @@ findings and thread actions together:
 Never submit multiple review events for the same pass. Never post findings as
 standalone pull request comments outside a review submission.
 
+That rule is about events the reviewer submits. A review comment always belongs
+to a review, so when a reply is posted through the REST route there is no
+pending review to attach it to and the platform creates one and submits it
+empty. Those body-less, finding-less shells are containers the platform made,
+not events the reviewer submitted: tolerate them, count them, and report the
+count. A verifier tolerates at most one shell per reply in the pass; any further
+review by the reviewer on that head, or any body-less review that carries an
+inline finding, is a real second event and a failure. Where the route can carry
+the replies inside the submitted review instead, no shell appears and none is
+tolerated.
+
 The manifest contains `review_body`, `inline_comments`, `replies`, and
 `resolve_thread_ids`. `inline_comments` is an array of `{path, line, body}`:
 every formal finding on a changed line gets its own entry. Each entry also

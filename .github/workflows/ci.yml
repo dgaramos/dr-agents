@@ -89,6 +89,8 @@ jobs:
         run: bash tests/test_validate_review_manifest.sh
       - name: test_dispatch_review_manifest
         run: bash tests/test_dispatch_review_manifest.sh
+      - name: test_verify_review_publication
+        run: bash tests/test_verify_review_publication.sh
       - name: test_install
         run: bash tests/test_install.sh
       - name: test_update

@@ -94,6 +94,12 @@ After every publisher action, the adapter must verify:
   thread; the thread state reflects resolution.
 - **After creating an issue**: the created issue's author matches the configured
   reviewer bot identity and the issue number is recorded in the draft summary.
+- **After publishing a review with replies**: exactly one review by the expected
+  reviewer carries content on the reviewed head, every reply exists under its
+  intended top-level comment with the expected author, and every requested
+  thread is resolved. Body-less, finding-less review events created by the
+  platform to contain a REST reply are tolerated up to the number of replies in
+  the pass and reported as a count; any review beyond that is a failure.
 
 If verification fails, report the failure and do not mark the action as
 published.
