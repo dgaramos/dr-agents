@@ -56,6 +56,8 @@ readonly required_paths=(
   "core/pr-review/scripts/select-publisher.sh"
   "core/pr-review/scripts/verify-publisher-dispatch.sh"
   "core/pr-review/scripts/verify-review-surface.sh"
+  "core/pr-review/scripts/load-review-threads.sh"
+  "tests/test_load_review_threads.sh"
   "examples/generic-publisher-dispatch-verification.md"
   "examples/generic-app-delivery.md"
   "docs/app-publishing.md"
