@@ -175,12 +175,27 @@ thread updates separately.
 
 ### Thread replies and body-less review events
 
-Replies should go through a route that emits no review event of its own. When
-only the REST review-comment reply route is available, a body-less `COMMENTED`
-review event appears for each reply, at the reply's `commit_id`. The publisher
-must state that limitation rather than leave it unexplained, and those shells
-are not review passes: they never count as a pass and the prior-head lookup
-above ignores them. One substantive review event per pass remains the rule.
+A review comment always belongs to a review. That is why a reply can create an
+extra event: the REST reply route has no pending review to attach the reply to,
+so the platform opens one implicitly and submits it empty. The shell is the
+container the reply required, not a side effect to be suppressed.
+
+**When the pass is submitting a review, the replies ride it.** Open the review
+as pending, attach each reply to that pending review by its thread, then submit
+once. One substantive event carries the summary, the inline findings and every
+reply, and no shell appears. A reply whose thread cannot be located must fail
+before the pending review is opened, while reporting nothing published is still
+true.
+
+The REST route remains for a reply with no accompanying review pass. There it
+is the only route available, a body-less `COMMENTED` event appears per reply at
+the reply's `commit_id`, and the publisher states that rather than leaving the
+reader to discover it.
+
+Those shells are never review passes: they do not count as a pass and the
+prior-head lookup above ignores them. One substantive review event per pass
+remains the rule, and on the batched route it is now structural rather than
+circumstantial.
 
 ### Thread reply anatomy
 

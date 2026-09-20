@@ -744,6 +744,46 @@ else
   fail "AC: rejected for the wrong reason: $output"
 fi
 
+# --- #380: the reply route is a rule, not an apology ------------------------
+# The contract previously only announced that REST replies emit shells. Once
+# the publisher batches replies into the submitted review, a contract that
+# still only apologises has lost the guarantee.
+
+# AD: the batched rule must be stated.
+reply_rule="$(make_fixture reply_rule)"
+sed -i.bak 's/the replies ride it/replies are handled somehow/' "$reply_rule/review-contract.md"
+if output="$(run_verifier "$reply_rule")"; then
+  fail "AD: a contract without the batched reply rule was accepted"
+elif grep -qi 'ride the submitted review' <<<"$output"; then
+  pass "AD: a contract without the batched reply rule is rejected"
+else
+  fail "AD: rejected for the wrong reason: $output"
+fi
+
+# AE: an unmappable reply must fail before the pending review exists, or the
+#     publisher would report not-published after creating state.
+reply_order="$(make_fixture reply_order)"
+sed -i.bak 's/before the pending review is opened/at some point/' "$reply_order/review-contract.md"
+if output="$(run_verifier "$reply_order")"; then
+  fail "AE: a contract without the pre-mutation ordering rule was accepted"
+elif grep -qi 'before the pending review' <<<"$output"; then
+  pass "AE: a contract without the pre-mutation ordering rule is rejected"
+else
+  fail "AE: rejected for the wrong reason: $output"
+fi
+
+# AF: REST must remain for a reply with no review to ride. Dropping it would
+#     leave that case with no documented route at all.
+reply_fallback="$(make_fixture reply_fallback)"
+sed -i.bak 's/no accompanying review pass/no reason/' "$reply_fallback/review-contract.md"
+if output="$(run_verifier "$reply_fallback")"; then
+  fail "AF: a contract that drops the REST fallback was accepted"
+elif grep -qi 'no review to ride' <<<"$output"; then
+  pass "AF: a contract that drops the REST fallback is rejected"
+else
+  fail "AF: rejected for the wrong reason: $output"
+fi
+
 if ((failures > 0)); then
   echo "review surface tests failed: $failures" >&2
   exit 1

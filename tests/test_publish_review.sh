@@ -39,6 +39,13 @@ case "$*" in
   'api --method POST '*'/reviews'*) cat "${FAKE_REVIEW_RESULT:?}"; exit 0 ;;
   'api --method POST '*'/comments'*) cat "${FAKE_REPLY_RESULT:?}"; exit 0 ;;
 esac
+case "$*" in
+  *'addPullRequestReviewThreadReply'*) cat "${FAKE_REPLY_MUTATION_RESULT:?}"; exit 0 ;;
+  *'submitPullRequestReview'*) cat "${FAKE_SUBMIT_RESULT:?}"; exit 0 ;;
+  *'pullRequest(number: $number) { id }'*) echo "${FAKE_PR_NODE_ID:-PR_node}"; exit 0 ;;
+esac
+if [[ "$*" == *'--input pending-review.json'* ]]; then cat "${FAKE_PENDING_RESULT:?}"; exit 0; fi
+if [[ "$*" == *"reviews/${FAKE_SUBMITTED_ID:-9001}"* ]]; then cat "${FAKE_REVIEW_RESULT:?}"; exit 0; fi
 if [[ "$1 $2 $3" == 'api graphql -f' ]]; then
   if [[ "$*" == *'after=cursor-one'* ]]; then cat "${FAKE_THREADS_PAGE2:?}"; else cat "${FAKE_THREADS_PAGE1:?}"; fi
   exit 0
@@ -65,6 +72,11 @@ reset_case() {
   jq -n '{user:{login:"cody-dr[bot]"},pull_request_url:"https://api.github.com/repos/owner/repo/pulls/1",state:"COMMENTED"}' >"$temp/review-result"
   jq -n '{user:{login:"cody-dr[bot]"}}' >"$temp/reply-result"
   export FAKE_REVIEW_RESULT="$temp/review-result" FAKE_REPLY_RESULT="$temp/reply-result"
+  jq -n '{data:{addPullRequestReview:{pullRequestReview:{id:"PRR_pending"}}}}' >"$temp/pending-result"
+  jq -n '{data:{addPullRequestReviewThreadReply:{comment:{databaseId:5001}}}}' >"$temp/reply-mutation"
+  jq -n '{data:{submitPullRequestReview:{pullRequestReview:{databaseId:9001,state:"COMMENTED"}}}}' >"$temp/submit-result"
+  export FAKE_PENDING_RESULT="$temp/pending-result" FAKE_REPLY_MUTATION_RESULT="$temp/reply-mutation"
+  export FAKE_SUBMIT_RESULT="$temp/submit-result" FAKE_SUBMITTED_ID=9001 FAKE_PR_NODE_ID=PR_node
 }
 
 # Runs the script in its own directory: it writes review.json into the CWD.
@@ -136,5 +148,34 @@ export REVIEW_BODY=summary
 jq -n '{user:{login:"someone-else"},pull_request_url:"https://api.github.com/repos/owner/repo/pulls/1",state:"COMMENTED"}' >"$temp/review-result"
 expect_fail_with "unexpected review author"
 echo "ok: rejects a review created by an unexpected author"
+
+# --- a pass carrying both a review and replies emits no shell --------------
+# dr-agents#380. The REST reply route creates an implicit empty review per
+# reply; batching them into the submitted review is what removes the shells.
+reset_case
+export REVIEW_BODY=summary REPLIES_JSON='[{"comment_id":4242,"body":"verified"}]'
+echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"id":"thread-one","comments":{"nodes":[{"databaseId":4242}]}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}' >"$temp/p1"
+run_script || { echo "FAIL: batched case should succeed" >&2; cat "$temp/err" >&2; exit 1; }
+grep -q "addPullRequestReviewThreadReply" "$temp/log" || { echo "FAIL: reply did not go through the batched mutation" >&2; cat "$temp/log" >&2; exit 1; }
+grep -q "submitPullRequestReview" "$temp/log" || { echo "FAIL: the pending review was never submitted" >&2; exit 1; }
+grep -q -- "--method POST repos/owner/repo/pulls/1/comments" "$temp/log" && { echo "FAIL: a REST reply was posted, which emits a shell" >&2; exit 1; }
+grep -q -- "--method POST repos/owner/repo/pulls/1/reviews" "$temp/log" && { echo "FAIL: the REST review route ran alongside the batched one" >&2; exit 1; }
+echo "ok: a review with replies is published as one batched review"
+
+# --- replies with no review keep the REST route and state the limitation ---
+reset_case
+export REPLIES_JSON='[{"comment_id":4242,"body":"verified"}]'
+run_script || { echo "FAIL: reply-only case should succeed" >&2; cat "$temp/err" >&2; exit 1; }
+grep -q -- "--method POST repos/owner/repo/pulls/1/comments" "$temp/log" || { echo "FAIL: reply-only must use the REST route" >&2; exit 1; }
+grep -q "submitPullRequestReview" "$temp/log" && { echo "FAIL: reply-only must not open a review" >&2; exit 1; }
+echo "ok: a reply with no review keeps the REST route"
+
+# --- a reply whose thread cannot be found fails before any mutation --------
+reset_case
+export REVIEW_BODY=summary REPLIES_JSON='[{"comment_id":4242,"body":"verified"}]'
+echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"id":"thread-one","comments":{"nodes":[{"databaseId":777}]}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}' >"$temp/p1"
+expect_fail_with "reply target has no review thread"
+grep -q "addPullRequestReview(" "$temp/log" && { echo "FAIL: opened a pending review before proving the reply could land" >&2; exit 1; }
+echo "ok: an unmappable reply fails while not-published is still honest"
 
 echo "publish review tests passed"

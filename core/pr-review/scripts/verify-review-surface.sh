@@ -464,6 +464,25 @@ if ! grep -qF 'desktop guarantee' "$contract_path"; then
   violation "$contract_path does not scope the three-line signal to a desktop reading width"
 fi
 
+# The reply route is the rule now, not a limitation to be announced. A contract
+# that only apologises for shells has lost the guarantee dr-agents#380 bought.
+reply_route_section="$(awk '
+  /^### Thread replies and body-less review events/ { in_section = 1; next }
+  in_section && /^#+ / { in_section = 0 }
+  in_section { print }
+' "$contract_path")"
+
+if [[ -z "${reply_route_section// /}" ]]; then
+  violation "$contract_path states no reply-route rule"
+else
+  grep -qF 'the replies ride it' <<<"$reply_route_section" ||
+    violation "the reply route does not state that replies ride the submitted review"
+  grep -qF 'before the pending review is opened' <<<"$reply_route_section" ||
+    violation "the reply route does not require an unmappable reply to fail before the pending review exists"
+  grep -qF 'no accompanying review pass' <<<"$reply_route_section" ||
+    violation "the reply route does not keep REST for a reply with no review to ride"
+fi
+
 if ((violations > 0)); then
   echo "review surface: $violations violation(s)" >&2
   exit 1
