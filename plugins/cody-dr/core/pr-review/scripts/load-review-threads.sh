@@ -20,9 +20,11 @@
 # like a complete one. Pages are therefore accumulated and printed only once the
 # last page has been read.
 #
-# NOTE: this paging query is duplicated in validate-review-manifest.sh and
-# verify-review-publication.sh, which are deliberately independent of this
-# loader. dr-agents#322 owns consolidating the three into one query site.
+# NOTE: this paging query is duplicated at four other sites: in
+# validate-review-manifest.sh and verify-review-publication.sh, which are
+# deliberately independent of this loader, and twice in
+# .github/scripts/publish-review.sh (`index_threads` and the resolution-target
+# loop). Consolidating the five is deferred, not overlooked.
 set -euo pipefail
 
 [[ $# == 2 ]] || {

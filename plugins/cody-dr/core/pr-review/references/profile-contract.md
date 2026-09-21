@@ -3,7 +3,9 @@
 A profile may define:
 
 - project identity and supported branches;
-- required context files and architecture boundaries;
+- required context files and architecture boundaries; a profile may scope its
+  required context by changed paths, so that a directory is read only when the
+  change touches it rather than in full on every review;
 - layer-specific review checklists;
 - quality commands and known check limitations;
 - risk axes and public-contract rules;
