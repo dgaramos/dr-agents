@@ -11,11 +11,6 @@
 # It is read-only by construction: it issues no mutating API call and never
 # dispatches. The manifest shape it enforces is documented as a fenced example
 # in review-contract.md; this script is its executable definition.
-#
-# NOTE: the review-thread paging query below is duplicated in
-# load-review-threads.sh and verify-review-publication.sh, which the issues
-# declare independent of one another. dr-agents#322 owns consolidating the three
-# query sites into one.
 set -euo pipefail
 
 [[ $# == 1 ]] || { echo "usage: validate-review-manifest.sh MANIFEST_PATH" >&2; exit 2; }
@@ -123,6 +118,11 @@ while IFS= read -r comment_id; do
 done < <(jq -r '.[] | .comment_id' <<<"$replies" 2>/dev/null)
 
 # --- resolution targets --------------------------------------------------
+# NOTE: this thread-paging query is duplicated at four other sites:
+# load-review-threads.sh, verify-review-publication.sh, and twice in
+# .github/scripts/publish-review.sh (`index_threads` and the resolution-target
+# loop). The scripts are deliberately independent of one another, so
+# consolidating the five is deferred, not overlooked.
 if [[ "$(jq length <<<"$resolve_thread_ids" 2>/dev/null || echo 0)" -gt 0 ]]; then
   thread_ids="$(
     cursor=""

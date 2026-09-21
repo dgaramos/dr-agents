@@ -21,11 +21,6 @@
 # never a shell -- if it has a body OR carries inline comments of its own, so an
 # extra review with content is reported as `unexpected additional review` even
 # where a shell in the same position would have been allowed.
-#
-# NOTE: the review-thread paging query below is duplicated in
-# load-review-threads.sh and validate-review-manifest.sh, which the issues
-# declare independent of one another. dr-agents#322 owns consolidating the three
-# query sites into one.
 set -euo pipefail
 
 [[ $# == 2 ]] || { echo "usage: verify-review-publication.sh MANIFEST_PATH EXPECTED_ACTOR" >&2; exit 2; }
@@ -134,6 +129,11 @@ while IFS= read -r comment_id; do
 done < <(jq -r '.[].comment_id' <<<"$replies")
 
 # --- resolutions ---------------------------------------------------------
+# NOTE: this thread-paging query is duplicated at four other sites:
+# load-review-threads.sh, validate-review-manifest.sh, and twice in
+# .github/scripts/publish-review.sh (`index_threads` and the resolution-target
+# loop). The scripts are deliberately independent of one another, so
+# consolidating the five is deferred, not overlooked.
 if [[ "$(jq 'length' <<<"$resolve_thread_ids")" -gt 0 ]]; then
   thread_state="$(
     cursor=""
