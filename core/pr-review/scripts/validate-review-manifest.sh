@@ -83,9 +83,16 @@ fi
 # hunk header, which is why a manifest anchored between two hunks is rejected
 # even though the line exists in the file.
 if diff_text="$(gh pr diff "$pr_number" --repo "$repository" 2>/dev/null)"; then
+  # `+++ ` is a file header only OUTSIDE a hunk. Inside one it is an added line
+  # whose own text begins with `++`, which the diff format renders identically.
+  # Without the hunk flag such a line is adopted as the current path and every
+  # later right-hand line of the file is recorded under a path the diff never
+  # contained, so a valid anchor is rejected. `diff --git` reopens the header
+  # region; it cannot be confused with content, which always carries a prefix.
   diff_lines="$(awk '
-    /^\+\+\+ /   { file = $2; sub(/^b\//, "", file); next }
-    /^@@ /       { match($0, /\+[0-9]+/); right = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
+    /^diff --git / { in_hunk = 0; file = ""; next }
+    /^@@ /       { match($0, /\+[0-9]+/); right = substr($0, RSTART + 1, RLENGTH - 1) + 0; in_hunk = 1; next }
+    /^\+\+\+ /   { if (!in_hunk) { file = $2; sub(/^b\//, "", file); next } }
     file == ""   { next }
     /^\+/        { print file ":" right; right++; next }
     /^-/         { next }
