@@ -11,11 +11,6 @@
 # It is read-only by construction: it issues no mutating API call and never
 # dispatches. The manifest shape it enforces is documented as a fenced example
 # in review-contract.md; this script is its executable definition.
-#
-# NOTE: the review-thread paging query below is duplicated in
-# load-review-threads.sh and verify-review-publication.sh, which the issues
-# declare independent of one another. dr-agents#322 owns consolidating the three
-# query sites into one.
 set -euo pipefail
 
 [[ $# == 1 ]] || { echo "usage: validate-review-manifest.sh MANIFEST_PATH" >&2; exit 2; }
@@ -83,9 +78,16 @@ fi
 # hunk header, which is why a manifest anchored between two hunks is rejected
 # even though the line exists in the file.
 if diff_text="$(gh pr diff "$pr_number" --repo "$repository" 2>/dev/null)"; then
+  # `+++ ` is a file header only OUTSIDE a hunk. Inside one it is an added line
+  # whose own text begins with `++`, which the diff format renders identically.
+  # Without the hunk flag such a line is adopted as the current path and every
+  # later right-hand line of the file is recorded under a path the diff never
+  # contained, so a valid anchor is rejected. `diff --git` reopens the header
+  # region; it cannot be confused with content, which always carries a prefix.
   diff_lines="$(awk '
-    /^\+\+\+ /   { file = $2; sub(/^b\//, "", file); next }
-    /^@@ /       { match($0, /\+[0-9]+/); right = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
+    /^diff --git / { in_hunk = 0; file = ""; next }
+    /^@@ /       { match($0, /\+[0-9]+/); right = substr($0, RSTART + 1, RLENGTH - 1) + 0; in_hunk = 1; next }
+    /^\+\+\+ /   { if (!in_hunk) { file = $2; sub(/^b\//, "", file); next } }
     file == ""   { next }
     /^\+/        { print file ":" right; right++; next }
     /^-/         { next }
@@ -116,6 +118,11 @@ while IFS= read -r comment_id; do
 done < <(jq -r '.[] | .comment_id' <<<"$replies" 2>/dev/null)
 
 # --- resolution targets --------------------------------------------------
+# NOTE: this thread-paging query is duplicated at four other sites:
+# load-review-threads.sh, verify-review-publication.sh, and twice in
+# .github/scripts/publish-review.sh (`index_threads` and the resolution-target
+# loop). The scripts are deliberately independent of one another, so
+# consolidating the five is deferred, not overlooked.
 if [[ "$(jq length <<<"$resolve_thread_ids" 2>/dev/null || echo 0)" -gt 0 ]]; then
   thread_ids="$(
     cursor=""

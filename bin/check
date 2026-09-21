@@ -675,10 +675,22 @@ for script in .github/scripts/publish-cody-*.sh; do
 done
 bash -n core/profile-discovery/scripts/discover-project-profile.sh
 bash -n core/issue-workflow/scripts/apply-pr-metadata.sh
-bash -n core/pr-review/scripts/verify-publisher-dispatch.sh
-bash -n core/pr-review/scripts/verify-review-surface.sh
-bash tests/test_verify_publisher_dispatch.sh
-bash tests/test_review_surface.sh
+# Every script under core/pr-review/scripts/ must parse and must be covered by
+# a test named after it. Both sets are derived from the tree, so adding a
+# script without a test fails here and no list is maintained: a hand-kept
+# enumeration is exactly what stops being correct the day something is added.
+# The mapping is mechanical -- `-` becomes `_` -- which is why
+# tests/test_verify_review_surface.sh carries the name of the script it covers.
+shopt -s nullglob
+for script in core/pr-review/scripts/*.sh; do
+  bash -n "$script"
+  script_test="tests/test_$(basename "$script" .sh | tr '-' '_').sh"
+  if [[ ! -f "$script_test" ]]; then
+    echo "coverage: $script has no $script_test" >&2
+    exit 1
+  fi
+  bash "$script_test"
+done
 tests/test_apply_pr_metadata.sh
 tests/test_publish_claudio_thread_action.sh
 tests/test_publish_cody_thread_action.sh
@@ -687,7 +699,6 @@ bash tests/test_adapter_commits.sh
 bash tests/test_attribution_hook.sh
 bash tests/test_publish_pr.sh
 bash tests/test_publish_review.sh
-bash tests/test_select_publisher.sh
 bash tests/test_install_workflows.sh
 # Vendored core/ files in a consumer (dr-agents#304). The check mode must name
 # the file and its state; a generic "vendored files found" is silence renamed.
@@ -912,6 +923,61 @@ for agent in "${adapter_reviewer_agents[@]}"; do
     fi
   done
 done
+
+# Reviewer surfaces must be identical once reviewer identity and the two
+# platform mechanics that legitimately differ are neutralized. Derived from the
+# tree rather than enumerated, so a third adapter is covered on arrival.
+#
+# The normalizer is deliberately minimal, because a normalizer is where real
+# drift hides: it maps the identity tokens to one neutral word, drops the single
+# leading `name:` frontmatter line (Codex skills carry one, Claude skills do
+# not), and collapses the two plugin-root spellings. It neutralizes nothing
+# else, so any other divergence -- wording, ordering, a contract reference, a
+# guardrail -- fails here. Widening it is a decision to be made deliberately,
+# not a quiet edit.
+normalize_reviewer_surface() {
+  sed -e 's/Claudio/REVIEWER/g' -e 's/claudio/reviewer/g' \
+      -e 's/Cody/REVIEWER/g' -e 's/cody/reviewer/g' \
+      -e 's|${CLAUDE_PLUGIN_ROOT}|<plugin-root>|g' \
+      -e 's|<installed-plugin-root>|<plugin-root>|g' \
+      -e '1,/^---$/{/^name: /d;}' "$1"
+}
+
+shopt -s nullglob
+readonly reviewer_surface_globs=(
+  "agents/*-reviewer.md"
+  "skills/review-pr/SKILL.md"
+)
+for surface_glob in "${reviewer_surface_globs[@]}"; do
+  reference=""
+  for surface in plugins/*/$surface_glob; do
+    if [[ -z "$reference" ]]; then
+      reference="$surface"
+      continue
+    fi
+    if ! diff -u <(normalize_reviewer_surface "$reference") \
+                 <(normalize_reviewer_surface "$surface") >&2; then
+      echo "parity: $surface does not mirror $reference once identity is normalized" >&2
+      exit 1
+    fi
+  done
+  if [[ -z "$reference" ]]; then
+    echo "parity: no adapter provides $surface_glob" >&2
+    exit 1
+  fi
+done
+
+# Published guidance must describe the publication path that exists. A
+# `--field manifest=` dispatch and a `gh pr review` fallback were both
+# documented and neither works: the dispatch takes typed workflow inputs, and
+# `gh pr review` cannot carry inline comments.
+while IFS= read -r offender; do
+  [[ -n "$offender" ]] || continue
+  echo "docs: ${offender%%:*}:$(cut -d: -f2 <<<"$offender") documents a publication mechanism that does not exist" >&2
+  echo "      ${offender#*:*:}" >&2
+  echo "      use the core/pr-review/scripts/ sequence and 'gh api ... --input'" >&2
+  exit 1
+done < <(grep -rn -- '--field manifest=\|gh pr review' examples/ docs/ || true)
 
 # Author and executor agents are adapter entrypoints. Keep their portable
 # behavior exactly aligned; identity substitution is the only expected change.

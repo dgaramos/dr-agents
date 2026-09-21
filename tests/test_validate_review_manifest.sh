@@ -217,6 +217,61 @@ reports "inline_comments" F
 reports "event" F
 cases=$((cases + 1))
 
+# --- H: an added line whose text begins with "++" ------------------------
+# In a unified diff a content line reading `++ item` is emitted as `+++ item`,
+# which is indistinguishable from a file header by prefix alone. A parser that
+# tests the prefix without knowing it is inside a hunk adopts `item` as the
+# current path, and every later right-hand line of that file is recorded under
+# the wrong one -- so a legitimate anchor is rejected with a message naming a
+# path the diff never contained.
+#
+# Both directions are asserted in the SAME diff: a fix that simply stopped
+# treating `+++` as a header would pass a fixture that only re-checks the
+# previously rejected line, so line 99 must still be rejected.
+new_gh
+cat >"$FAKE_DIR/diff.txt" <<'DIFF'
+diff --git a/src/b.sh b/src/b.sh
+--- a/src/b.sh
++++ b/src/b.sh
+@@ -1,2 +1,4 @@
+ one
++++ item
++after
+ four
+DIFF
+m="$FAKE_DIR/m.json"
+manifest "$m" <<JSON
+{"repository":"owner/repo","pr_number":7,"event":"COMMENT",
+ "reviewed_head_sha":"$HEAD_SHA","review_body":"summary",
+ "inline_comments":[{"path":"src/b.sh","line":3,"body":"after the ++ line"}],
+ "replies":[],"resolve_thread_ids":[]}
+JSON
+run_validator "$m"
+[ "$STATUS" -eq 0 ] \
+  || fail "H: a right-hand line after a '++'-prefixed addition should be valid: $ALL"
+new_gh
+cat >"$FAKE_DIR/diff.txt" <<'DIFF'
+diff --git a/src/b.sh b/src/b.sh
+--- a/src/b.sh
++++ b/src/b.sh
+@@ -1,2 +1,4 @@
+ one
++++ item
++after
+ four
+DIFF
+m="$FAKE_DIR/m.json"
+manifest "$m" <<JSON
+{"repository":"owner/repo","pr_number":7,"event":"COMMENT",
+ "reviewed_head_sha":"$HEAD_SHA","review_body":"summary",
+ "inline_comments":[{"path":"src/b.sh","line":99,"body":"not in the diff"}],
+ "replies":[],"resolve_thread_ids":[]}
+JSON
+run_validator "$m"
+[ "$STATUS" -eq 1 ] || fail "H: line 99 is not in the diff and must still be rejected"
+reports "src/b.sh:99" H
+cases=$((cases + 1))
+
 # --- G: unreadable manifest ---------------------------------------------
 new_gh
 run_validator "$FAKE_DIR/does-not-exist.json"

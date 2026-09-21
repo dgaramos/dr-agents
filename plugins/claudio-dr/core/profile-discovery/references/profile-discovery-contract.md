@@ -17,6 +17,11 @@ catalog checkout is available. It prints the sole matching profile path.
 - More than one match: stop and ask the caller to name the intended profile;
   never choose one by directory order.
 
+When the explicit target is in another repository, discovery runs against that
+repository's checkout with `--root <checkout>` rather than the current working
+directory, and the summary names the checkout it used. This states which
+repository is inspected; it does not describe where the checkout comes from.
+
 Profiles are target-project data. Do not copy them into plugins, core, or a
 global agent. A wrapper may name an explicit profile for backwards
 compatibility, but must not prevent this discovery procedure for new projects.

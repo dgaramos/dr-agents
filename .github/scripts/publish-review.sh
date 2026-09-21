@@ -36,6 +36,9 @@ done < <(jq -c '.[]' <<<"$replies_json")
 # One paged read of the PR's threads serves both the resolution check below and
 # the reply-to-thread mapping the batched route needs. `addPullRequestReviewThreadReply`
 # takes a thread node id, while the manifest names a top-level comment id.
+# NOTE: this thread-paging query, and the resolution-target loop below, are two
+# of five sites carrying the same query; the other three are the scripts under
+# core/pr-review/scripts/. Consolidating them is deferred, not overlooked.
 thread_index_file="$(mktemp)"
 index_threads() {
   local cursor="" page
@@ -53,6 +56,7 @@ thread_for_comment() {
   awk -v want="$1" '$1 == want { print $2; exit }' "$thread_index_file"
 }
 
+# The second of this file's two query sites (see the note above).
 while IFS= read -r thread_id; do
   cursor=""; found=false
   while :; do
