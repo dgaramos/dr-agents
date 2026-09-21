@@ -42,6 +42,15 @@ It selects the publishing account; it never authorizes an additional action.
    adapter bot. Report the App operation's availability independently from the
    adapter's identity and capabilities.
 
+   For a review, the personal route posts **the same manifest**, unchanged, with
+   `gh api --method POST repos/<owner>/<repo>/pulls/<number>/reviews --input
+   <manifest-derived-body>`. Do not use `gh pr review`: it cannot carry the
+   `comments` array, so it would silently drop every inline finding and turn a
+   route change into a content change, which the first sentence of this rule
+   forbids. Resolve the expected actor with `gh api user --jq .login`, verify
+   with `core/pr-review/scripts/verify-review-publication.sh <manifest>
+   <that-login>`, and label the result `personal fallback`.
+
 Projects are separately routed by the shipping contract and may use a different
 actor. The executing adapter's commit co-author remains its own bot identity
 even when a personal account publishes the PR or authenticates the push.

@@ -23,6 +23,24 @@ also permit fallback; ambiguous or partial outcomes must be inspected first.
 The agent announces the evidence and verifies the actual publishing account.
 Selecting a fallback for one operation does not change the others' routing.
 
+## Review publication sequence
+
+An authorized review is published by the portable scripts under
+`core/pr-review/scripts/`, in this order: `load-review-threads.sh` produces
+every thread with both identifiers, the reviewer builds one manifest,
+`validate-review-manifest.sh` reports every problem locally in a single run,
+`dispatch-review-manifest.sh` sends that manifest to the review publisher and
+mirrors the resulting run's conclusion, and
+`verify-review-publication.sh` confirms the review, its replies, and its
+resolutions against the manifest.
+
+The manifest is the sole payload on either route. On the personal fallback the
+same document is posted with `gh api --method POST
+repos/<owner>/<repo>/pulls/<number>/reviews --input`, which preserves the
+inline findings; the expected actor comes from `gh api user --jq .login` and
+the result is labeled `personal fallback`. A route change must never become a
+content change.
+
 Declare the matching `create-pr` publisher in each project profile. Its inputs
 are `title`, completed Markdown `body`, `head_branch`, and `base_branch`. It
 uses Pull requests write permission and verifies the App author and PR target.

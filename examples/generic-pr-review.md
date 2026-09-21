@@ -75,25 +75,49 @@ published.
 
 ## Publisher dispatch sequence
 
-When publication is authorized, the reviewer follows this sequence:
+When publication is authorized, the reviewer follows the ordered sequence of
+`core/pr-review/references/review-contract.md`, using the portable scripts:
 
 1. **Look up** the target profile's `review` publisher mode (e.g.,
-   `.github/workflows/publish-claudio-review.yml`).
-2. **Build the manifest** — `review_body`, `inline_comments`, `replies`,
-   `resolve_thread_ids`.
-3. **Dispatch via workflow** — `gh workflow run publish-claudio-review.yml
-   --field manifest='<json>'`. Never use `gh pr review` directly when a
-   publisher is configured.
-4. **Verify** the resulting review's author is `claudio-dr[bot]` and event
-   is `COMMENT`. A mismatch is reported as a failed publication, not silently
-   accepted. A body-less review event created by a thread reply is a transport
-   shell, not a second pass: it is reported as the stated limitation of the
-   reply route and ignored when a later pass locates the prior reviewed head.
+   `.github/workflows/publish-<reviewer>-review.yml`) with
+   `core/pr-review/scripts/select-publisher.sh`.
+2. **Load the threads** — `core/pr-review/scripts/load-review-threads.sh
+   acme/widgets 42` produces every thread with both identifiers: the GraphQL
+   node id that resolves a conversation and the REST `databaseId` a reply
+   targets.
+3. **Build the manifest** — one JSON document carrying `review_body`,
+   `inline_comments`, `replies`, and `resolve_thread_ids`.
+4. **Validate** — `core/pr-review/scripts/validate-review-manifest.sh
+   manifest.json` reports every problem in one run. An invalid manifest is not
+   dispatched.
+5. **Dispatch** — `core/pr-review/scripts/dispatch-review-manifest.sh
+   manifest.json publish-<reviewer>-review.yml`. The manifest reaches the
+   publisher as workflow inputs built by `jq`; no review body is ever
+   interpolated into a shell word. The script locates the run it caused, waits
+   for it, and mirrors its conclusion.
+6. **Verify** — `core/pr-review/scripts/verify-review-publication.sh
+   manifest.json '<reviewer>-dr[bot]'` confirms the review's author, event and
+   body, every reply under its intended top-level comment, and every requested
+   resolution. A mismatch is reported as a failed publication, not silently
+   accepted.
+
+An ambiguous dispatch is unknown availability, never a reason to dispatch
+again: a second dispatch publishes a second review.
+
+Whether a body-less review event appears at all depends on the route. When the
+pass submits a review and also carries replies, the replies ride that review
+and no shell is created. When it carries replies alone, each reply forces the
+platform to open an empty review to contain it; those are reported as a count
+and ignored when a later pass locates the prior reviewed head. The verifier
+derives which case applies from the manifest, so a shell is tolerated only
+where one can legitimately arise.
 
 When no `review` publisher mode is declared in the target profile, the reviewer
-falls back to `gh pr review` under the caller's authenticated personal account
-and clearly labels the review as posted by that personal account — never as the
-bot identity.
+posts **the same manifest** under the caller's authenticated personal account
+with `gh api --method POST repos/acme/widgets/pulls/42/reviews --input`,
+preserving every inline finding. It resolves the expected actor with
+`gh api user --jq .login`, verifies with the same script, and labels the result
+`personal fallback` — never as the bot identity.
 
 The example intentionally contains no project command, credential, or
 vendor assumption. Both Claudio DR and Cody DR produce equivalent scope,
