@@ -72,6 +72,29 @@ thread() { # node isResolved path line comments...
     "$id" "$res" "$path" "$line" "$cs"
 }
 
+# A thread whose comment list is itself paged. Same shape as `thread`, but the
+# comments pageInfo advertises another page, which sends the loader into its
+# per-thread cursor walk.
+thread_paged() { # node isResolved path line cursor comments...
+  local id="$1" res="$2" path="$3" line="$4" cursor="$5"; shift 5
+  local cs=""
+  for c in "$@"; do cs="${cs:+$cs,}$c"; done
+  printf '{"id":"%s","isResolved":%s,"path":"%s","line":%s,"comments":{"nodes":[%s],"pageInfo":{"hasNextPage":true,"endCursor":"%s"}}}' \
+    "$id" "$res" "$path" "$line" "$cs" "$cursor"
+}
+
+# One `node(id:)` comments page, the response to a per-thread cursor walk.
+comments_page() { # dest hasNextPage endCursor comments...
+  local dest="$1" has="$2" cursor="$3"; shift 3
+  local cs=""
+  for c in "$@"; do cs="${cs:+$cs,}$c"; done
+  cat >"$dest" <<JSON
+{"data":{"node":{"comments":{
+  "nodes":[$cs],
+  "pageInfo":{"hasNextPage":$has,"endCursor":"$cursor"}}}}}
+JSON
+}
+
 # --- A: pagination -------------------------------------------------------
 # A thread that only exists on page 2 must survive. This is the case that fails
 # the moment the cursor loop is dropped or the accumulator is overwritten.
@@ -108,6 +131,45 @@ run_loader owner/repo 7
 [ "$(jq -r '.[0].comments[1].author' <<<"$OUT")" = bob ] || fail "B: reply author wrong"
 [ "$(jq -r '.[0].comments[1].body' <<<"$OUT")" = reply ] || fail "B: reply body wrong"
 [ "$(jq -r '.[0].comments[1].created_at' <<<"$OUT")" = 2024-01-01T01:00:00Z ] || fail "B: created_at wrong"
+cases=$((cases + 1))
+
+# --- B2: a thread whose COMMENTS are paged ------------------------------
+# Long threads are precisely the ones a duplicate-finding reply targets, so the
+# per-thread cursor walk is the reason the loader exists -- yet every other
+# fixture here advertises `hasNextPage:false` and never enters it. A loader that
+# dropped the walk entirely would pass all of them and silently truncate the one
+# thread that mattered.
+new_gh
+page "$FAKE_DIR/response-1.json" false null \
+  "$(thread_paged T1 false src/a.sh 10 CCUR1 \
+      "$(comment 111 C1 alice "first" null 2024-01-01T00:00:00Z)")"
+comments_page "$FAKE_DIR/response-2.json" false null \
+  "$(comment 112 C2 bob "second page" '{"id":"C1"}' 2024-01-01T02:00:00Z)"
+run_loader owner/repo 7
+[ "$STATUS" -eq 0 ] || fail "B2: expected exit 0, got $STATUS ($ERR)"
+[ "$(jq '.[0].comments|length' <<<"$OUT")" = 2 ] \
+  || fail "B2: expected both comment pages, got $(jq -c '.[0].comments' <<<"$OUT")"
+[ "$(jq -r '[.[0].comments[].database_id]|join(",")' <<<"$OUT")" = "111,112" ] \
+  || fail "B2: paged comments out of order or missing: $(jq -c '[.[0].comments[].database_id]' <<<"$OUT")"
+[ "$(jq -r '.[0].comments[1].is_top_level' <<<"$OUT")" = false ] \
+  || fail "B2: a comment from a later page lost its replyTo derivation"
+grep -q 'after=CCUR1' "$FAKE_DIR/calls" \
+  || fail "B2: the remaining comments were not requested with the thread endCursor"
+grep -q 'thread=T1' "$FAKE_DIR/calls" \
+  || fail "B2: the comments page was not requested for the thread node id"
+cases=$((cases + 1))
+
+# --- B3: a failure while paging a thread's comments ---------------------
+# The all-or-nothing rule applies inside the per-thread walk too: a half-read
+# thread must not reach stdout looking complete.
+new_gh
+page "$FAKE_DIR/response-1.json" false null \
+  "$(thread_paged T1 false src/a.sh 10 CCUR1 \
+      "$(comment 111 C1 alice "first" null 2024-01-01T00:00:00Z)")"
+printf '2' >"$FAKE_DIR/fail-from"
+run_loader owner/repo 7
+[ "$STATUS" -ne 0 ] || fail "B3: expected non-zero exit when a comments page fails"
+[ -z "$OUT" ] || fail "B3: stdout must be empty when a comments page fails, got: $OUT"
 cases=$((cases + 1))
 
 # --- C: gh failure on the FIRST call ------------------------------------
