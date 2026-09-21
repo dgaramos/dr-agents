@@ -156,6 +156,17 @@ findings and thread actions together:
 Never submit multiple review events for the same pass. Never post findings as
 standalone pull request comments outside a review submission.
 
+That rule is about events the reviewer submits. A review comment always belongs
+to a review, so when a reply is posted through the REST route there is no
+pending review to attach it to and the platform creates one and submits it
+empty. Those body-less, finding-less shells are containers the platform made,
+not events the reviewer submitted: tolerate them, count them, and report the
+count. A verifier tolerates at most one shell per reply in the pass; any further
+review by the reviewer on that head, or any body-less review that carries an
+inline finding, is a real second event and a failure. Where the route can carry
+the replies inside the submitted review instead, no shell appears and none is
+tolerated.
+
 The manifest contains `review_body`, `inline_comments`, `replies`, and
 `resolve_thread_ids`. `inline_comments` is an array of `{path, line, body}`:
 every formal finding on a changed line gets its own entry. Each entry also
@@ -167,6 +178,42 @@ never collapse those findings into one general comment. `replies` and
 `resolve_thread_ids` are validated against the supplied PR before publication.
 The publisher transports this manifest unchanged. The reviewer owns the review
 summary and must not delegate its factual analysis to the publisher.
+
+The manifest is a single JSON document. This example is its normative shape;
+the portable validator at `core/pr-review/scripts/validate-review-manifest.sh`
+is its executable definition, so there is no separate schema file to drift from
+it:
+
+```json
+{
+  "repository": "OWNER/REPO",
+  "pr_number": 42,
+  "event": "COMMENT",
+  "reviewed_head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "review_body": "## Summary\n\nThe verdict strip, then the collapsed block.",
+  "inline_comments": [
+    {
+      "path": "src/module.ext",
+      "line": 128,
+      "body": "**Important** — the evidence and the suggested change.",
+      "confidence": 0.82
+    }
+  ],
+  "replies": [
+    { "comment_id": 1234567890, "body": "Still present at this head: ..." }
+  ],
+  "resolve_thread_ids": ["PRRT_kwDOABCDEF4AbCdE"]
+}
+```
+
+`repository` and `pr_number` name the target; every other field is the payload
+described above. `confidence` is transported and reported, never rendered into
+the published body. `comment_id` is the REST `databaseId` of a **top-level**
+review comment, and `resolve_thread_ids` entries are GraphQL review-thread node
+ids — the two identifiers that
+`core/pr-review/scripts/load-review-threads.sh` produces together. Validate a
+manifest locally before dispatching it; an invalid manifest must not reach a
+publisher.
 
 `replies` also carries duplicate findings: it references the existing top-level
 review-comment identifier and adds the current-head evidence, rather than

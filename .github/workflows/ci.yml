@@ -83,6 +83,14 @@ jobs:
         run: bash tests/test_smoke_find_issue_target.sh
       - name: test_publication_outcomes
         run: bash tests/test_publication_outcomes.sh
+      - name: test_load_review_threads
+        run: bash tests/test_load_review_threads.sh
+      - name: test_validate_review_manifest
+        run: bash tests/test_validate_review_manifest.sh
+      - name: test_dispatch_review_manifest
+        run: bash tests/test_dispatch_review_manifest.sh
+      - name: test_verify_review_publication
+        run: bash tests/test_verify_review_publication.sh
       - name: test_install
         run: bash tests/test_install.sh
       - name: test_update
