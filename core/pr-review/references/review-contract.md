@@ -210,7 +210,8 @@ renders `confidence` into the published body. A publisher that
 cannot submit that array must return the manifest as `not published`; it must
 never collapse those findings into one general comment. `replies` and
 `resolve_thread_ids` are validated against the supplied PR before publication.
-The publisher transports this manifest unchanged. The reviewer owns the review
+The publisher transports every one of these fields, mapping them onto the
+publication API without altering their content. The reviewer owns the review
 summary and must not delegate its factual analysis to the publisher.
 
 The manifest is a single JSON document. This example is its normative shape;
@@ -289,8 +290,9 @@ script, and no step is skipped because a previous pass performed it:
    dispatched.
 4. **Dispatch** — `core/pr-review/scripts/dispatch-review-manifest.sh
    <manifest> <workflow-file>` sends the manifest to the App publisher and
-   mirrors the resulting run's conclusion. On the personal route the same
-   manifest is posted directly; see `publication-routing-contract.md` rule 5.
+   mirrors the resulting run's conclusion. On the personal route the manifest
+   is converted to the reviews request body first; see
+   `publication-routing-contract.md` rule 5 for that single mapping.
 5. **Wait** — for the dispatched run to conclude. An ambiguous or unidentified
    run is unknown availability, never a reason to dispatch again: a second
    dispatch publishes a second review.

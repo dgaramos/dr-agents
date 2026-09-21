@@ -34,12 +34,17 @@ mirrors the resulting run's conclusion, and
 `verify-review-publication.sh` confirms the review, its replies, and its
 resolutions against the manifest.
 
-The manifest is the sole payload on either route. On the personal fallback the
-same document is posted with `gh api --method POST
-repos/<owner>/<repo>/pulls/<number>/reviews --input`, which preserves the
-inline findings; the expected actor comes from `gh api user --jq .login` and
-the result is labeled `personal fallback`. A route change must never become a
-content change.
+The manifest is the sole payload on either route, but it is not itself a
+request body. The App publisher converts it to the REST review payload
+(`review_body` → `body`, `reviewed_head_sha` → `commit_id`, `inline_comments` →
+`comments`) at `.github/scripts/publish-review.sh:122`, and the personal
+fallback applies the same conversion before `gh api --method POST
+repos/<owner>/<repo>/pulls/<number>/reviews --input review.json`; the mapping
+is written out in `core/pr-review/references/publication-routing-contract.md`
+rule 5, which also covers the replies and resolutions that request body cannot
+carry. The expected actor comes from `gh api user --jq .login` and the result
+is labeled `personal fallback`. A route change must never become a content
+change.
 
 Declare the matching `create-pr` publisher in each project profile. Its inputs
 are `title`, completed Markdown `body`, `head_branch`, and `base_branch`. It

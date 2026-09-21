@@ -42,13 +42,30 @@ It selects the publishing account; it never authorizes an additional action.
    adapter bot. Report the App operation's availability independently from the
    adapter's identity and capabilities.
 
-   For a review, the personal route posts **the same manifest**, unchanged, with
-   `gh api --method POST repos/<owner>/<repo>/pulls/<number>/reviews --input
-   <manifest-derived-body>`. Do not use `gh pr review`: it cannot carry the
-   `comments` array, so it would silently drop every inline finding and turn a
-   route change into a content change, which the first sentence of this rule
-   forbids. Resolve the expected actor with `gh api user --jq .login`, verify
-   with `core/pr-review/scripts/verify-review-publication.sh <manifest>
+   For a review, the personal route carries **the same content**, but the
+   manifest is not itself a valid request body: it names the review with
+   `review_body`, `reviewed_head_sha`, and `inline_comments`, while the reviews
+   endpoint expects `body`, `commit_id`, and `comments`. Convert it once, with
+   the same mapping the App publisher applies:
+
+   ```sh
+   jq '{event: .event, body: (.review_body // ""), commit_id: .reviewed_head_sha}
+       + (if ((.inline_comments // []) | length) == 0 then {}
+          else {comments: (.inline_comments | map({path, line, side: "RIGHT", body}))}
+          end)' <manifest> > review.json
+   gh api --method POST repos/<owner>/<repo>/pulls/<number>/reviews --input review.json
+   ```
+
+   The conversion drops `confidence`, which is transported and reported but
+   never published. `replies` and `resolve_thread_ids` are not fields of that
+   request: each reply is a separate POST to
+   `repos/<owner>/<repo>/pulls/<number>/comments` with `in_reply_to`, and each
+   resolution a separate `resolveReviewThread` GraphQL mutation. Do not use
+   `gh pr review`: it cannot carry the `comments` array, so it would silently
+   drop every inline finding and turn a route change into a content change,
+   which the first sentence of this rule forbids. Resolve the expected actor
+   with `gh api user --jq .login`, verify with
+   `core/pr-review/scripts/verify-review-publication.sh <manifest>
    <that-login>`, and label the result `personal fallback`.
 
 Projects are separately routed by the shipping contract and may use a different

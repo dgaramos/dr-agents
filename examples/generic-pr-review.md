@@ -113,11 +113,17 @@ derives which case applies from the manifest, so a shell is tolerated only
 where one can legitimately arise.
 
 When no `review` publisher mode is declared in the target profile, the reviewer
-posts **the same manifest** under the caller's authenticated personal account
-with `gh api --method POST repos/acme/widgets/pulls/42/reviews --input`,
-preserving every inline finding. It resolves the expected actor with
-`gh api user --jq .login`, verifies with the same script, and labels the result
-`personal fallback` — never as the bot identity.
+publishes **the same content** under the caller's authenticated personal
+account. The manifest is first converted to the reviews request body by the
+single mapping in
+`core/pr-review/references/publication-routing-contract.md` rule 5 —
+`review_body` → `body`, `reviewed_head_sha` → `commit_id`, `inline_comments` →
+`comments` — and that file is sent with `gh api --method POST
+repos/acme/widgets/pulls/42/reviews --input review.json`, preserving every
+inline finding. Replies and resolutions are separate requests, not fields of
+that body. It resolves the expected actor with `gh api user --jq .login`,
+verifies with the same script, and labels the result `personal fallback` —
+never as the bot identity.
 
 The example intentionally contains no project command, credential, or
 vendor assumption. Both Claudio DR and Cody DR produce equivalent scope,
