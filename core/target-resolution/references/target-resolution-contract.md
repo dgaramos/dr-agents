@@ -53,25 +53,44 @@ profile to another target.
 
 In `remote-only` mode, a separately authorized write creates or updates a
 branch in the target with
-`core/target-resolution/scripts/remote-write.sh OWNER/REPO BASE_BRANCH
-NEW_BRANCH MANIFEST_PATH MESSAGE_FILE [--update]`, where the manifest is
+
+```text
+core/target-resolution/scripts/remote-write.sh OWNER/REPO BASE_BRANCH \
+  NEW_BRANCH MANIFEST_PATH MESSAGE_FILE [--update] \
+  [--author 'Name <email>'] [--committer 'Name <email>']
+```
+
+where the manifest is
 `[{"path":"<path in the target>","file":"<absolute local path>"}]`.
 
 The script uses the authenticated `gh` session and never reads, stores, or
-accepts a token. It reads the new ref first and refuses an existing branch
-unless `--update` is passed, so no blob, tree, or commit is created before that
-check. It then reads the base ref and its commit, uploads one base64 blob per
-manifest entry, creates one tree on the base tree, creates one commit whose
-`message` is the message file byte for byte, and creates the ref — or, with
-`--update`, moves it with `force: false`. File bytes and the message are passed
-through `jq`-built JSON to `gh api --input`; they are never interpolated into a
-shell word.
+accepts a token. It reads the new ref first, so no blob, tree, or commit is
+created before that check. The check fails closed: a 200 means the branch
+exists, only a 404 means it is absent, and every other failure — authentication,
+authorization, rate limit, server, or network — stops the run instead of
+entering the create path. An existing branch is refused unless `--update` is
+passed, and `--update` is refused when the branch does not exist.
+
+The write then descends from the correct parent. Creating a branch parents the
+commit from the base branch's head and builds on that commit's tree; `--update`
+parents from the existing branch head and builds on *its* tree, so the ref move
+is a fast-forward. It uploads one base64 blob per manifest entry, creates one
+tree, creates one commit whose `message` is the message file byte for byte, and
+creates the ref — or, with `--update`, moves it with `force: false`. File bytes
+and the message are passed through `jq`-built JSON to `gh api --input`; they are
+never interpolated into a shell word.
+
+Commit identity is chosen, not inherited. `--author` and `--committer` are
+passed through to the git-data API verbatim; when neither is given, GitHub
+attributes the commit to the authenticated account. The identity is supplied by
+the caller because this contract is model-neutral: an adapter that wants its own
+authorship passes its identity, and no adapter identity is named here. Any
+co-authorship trailer belongs in the message file.
 
 It prints `{"commit":"<sha>","ref":"refs/heads/<branch>","files":<count>}` and,
 on failure, reports already-created SHAs on stderr. It never opens a pull
-request, and the commit is authored by the authenticated personal account, so
-any adapter co-authorship must appear in the message file. When a checkout is
-available, use it; this script is for `remote-only` mode.
+request. When a checkout is available, use it; this script is for `remote-only`
+mode.
 
 ## Publisher selection at the target (RF-07)
 
