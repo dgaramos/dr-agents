@@ -96,6 +96,10 @@ readonly required_paths=(
   "core/pr-review/agents/openai.yaml"
   "core/profile-discovery/references/profile-discovery-contract.md"
   "core/profile-discovery/scripts/discover-project-profile.sh"
+  "core/target-resolution/SKILL.md"
+  "core/target-resolution/references/target-resolution-contract.md"
+  "core/target-resolution/scripts/resolve-target.sh"
+  "tests/test_resolve_target.sh"
   "core/spec/SKILL.md"
   "core/spec/references/spec-contract.md"
   "core/clarify-spec/SKILL.md"
@@ -135,6 +139,7 @@ readonly required_paths=(
   "bin/sync-plugin-core-bundles.sh"
   "examples/generic-pr-review.md"
   "examples/generic-profile-discovery.md"
+  "examples/generic-target-resolution.md"
   "examples/generic-issue-authoring.md"
   "examples/generic-design-discovery.md"
   "examples/generic-spec-driven-development.md"
@@ -673,16 +678,14 @@ shopt -s nullglob
 for script in .github/scripts/publish-cody-*.sh; do
   bash -n "$script"
 done
-bash -n core/profile-discovery/scripts/discover-project-profile.sh
-bash -n core/issue-workflow/scripts/apply-pr-metadata.sh
-# Every script under core/pr-review/scripts/ must parse and must be covered by
+# Every script under core/*/scripts/ must parse and must be covered by
 # a test named after it. Both sets are derived from the tree, so adding a
 # script without a test fails here and no list is maintained: a hand-kept
 # enumeration is exactly what stops being correct the day something is added.
 # The mapping is mechanical -- `-` becomes `_` -- which is why
 # tests/test_verify_review_surface.sh carries the name of the script it covers.
 shopt -s nullglob
-for script in core/pr-review/scripts/*.sh; do
+for script in core/*/scripts/*.sh; do
   bash -n "$script"
   script_test="tests/test_$(basename "$script" .sh | tr '-' '_').sh"
   if [[ ! -f "$script_test" ]]; then

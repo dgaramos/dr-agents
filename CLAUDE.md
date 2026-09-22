@@ -92,6 +92,10 @@ trusting a verification.
 - **`bin/install --repo` targets the current working directory, not `HOME`.**
   A test that fakes `HOME` and runs it from the catalog checkout writes into
   the catalog's own `.claude/`. Run install tests from a scratch directory.
+- **A skill's current working directory is not necessarily its target.**
+  Earlier flows assumed the cwd was the repository named by a PR, issue, or
+  specs source. Resolve the target first and match local checkouts by `origin`;
+  never infer the target from a directory name.
 - **`gh pr edit --milestone` takes the milestone title, not its number.**
   `--milestone 3` fails with `'3' not found`; pass the title the profile's
   milestone number resolves to.
