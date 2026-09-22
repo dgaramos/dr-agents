@@ -49,7 +49,7 @@ normalize_reference() {
     host="${BASH_REMATCH[1]}"; owner="${BASH_REMATCH[2]}"; repository="${BASH_REMATCH[3]}"
   elif [[ "$value" =~ ^([^/]+)/([^/#]+)#([1-9][0-9]*)$ ]]; then
     host="github.com"; owner="${BASH_REMATCH[1]}"; repository="${BASH_REMATCH[2]}"
-    kind="issue"; number="${BASH_REMATCH[3]}"
+    kind="number"; number="${BASH_REMATCH[3]}"
   elif [[ "$value" =~ ^([^/]+)/([^/#]+)$ ]]; then
     host="github.com"; owner="${BASH_REMATCH[1]}"; repository="${BASH_REMATCH[2]}"
   else
@@ -136,7 +136,7 @@ if [[ -z "$checkout" ]]; then
         candidates+=("$directory")
         candidate_evidence+=("root-scan:$root")
       fi
-    done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+    done < <(find -L "$root" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
   done
 
   if [[ "${#candidates[@]}" -gt 1 ]]; then

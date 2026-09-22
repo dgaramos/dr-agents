@@ -23,6 +23,9 @@ make_repository() {
 make_repository "$temporary_directory/cwd" "https://github.com/owner/A.git"
 make_repository "$temporary_directory/roots/any-name" "git@github.com:owner/B.git"
 make_repository "$temporary_directory/roots/B" "https://github.com/other/wrong.git"
+make_repository "$temporary_directory/real/symlinked" "https://github.com/owner/symlinked.git"
+mkdir -p "$temporary_directory/symlink-root"
+ln -s "$temporary_directory/real/symlinked" "$temporary_directory/symlink-root/linked-checkout"
 
 pushd "$temporary_directory/cwd" >/dev/null
 result="$(DR_AGENTS_REPO_ROOTS="$temporary_directory/roots" "$resolver" "https://github.com/owner/B/pull/7")"
@@ -33,6 +36,10 @@ assert_json "$result" "explicit PR and remote-based checkout" \
 result="$(DR_AGENTS_REPO_ROOTS="$temporary_directory/none" "$resolver")"
 assert_json "$result" "cwd origin precedence" --arg path "$temporary_directory/cwd" \
   '.target == "owner/A" and .source == "cwd" and .checkout == $path and .checkout_evidence == "cwd-origin"'
+
+result="$(DR_AGENTS_REPO_ROOTS="$temporary_directory/symlink-root" "$resolver" owner/symlinked)"
+assert_json "$result" "symlinked checkout" --arg path "$temporary_directory/real/symlinked" \
+  '.checkout == $path and .mode == "checkout"'
 popd >/dev/null
 
 references=(
@@ -53,6 +60,9 @@ assert_json "$result" "specs repository source" '.target == "Specs/Repo" and .so
 
 result="$(cd "$temporary_directory" && "$resolver" explicit/Target --from-specs-repository Specs/Repo)"
 assert_json "$result" "explicit reference precedes specs repository" '.target == "explicit/Target" and .source == "explicit"'
+
+result="$(cd "$temporary_directory" && "$resolver" o/r#9)"
+assert_json "$result" "numeric shorthand stays ambiguous" '.reference == {kind:"number",number:9}'
 
 for malformed in "o/r/extra" "https://github.com/o" ""; do
   stdout="$temporary_directory/stdout"

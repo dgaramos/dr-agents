@@ -17,17 +17,20 @@ Normalize HTTPS, scp-style SSH, `ssh://`, `owner/repository`, and
 `owner/repository#number` references to a host plus `owner/repository`. Strip a
 terminal `.git`; compare host, owner, and repository without regard to case;
 and preserve the normalized host in the result. Reject malformed input instead
-of repairing or guessing it.
+of repairing or guessing it. A URL identifies its `reference.kind` as `pr` or
+`issue`; a bare repository is `repo`; and `owner/repository#number` is
+`number`, because resolving it as an issue or pull request would require a
+network lookup that this resolver must not perform.
 
 ## Checkout location (RF-03)
 
 Select the current checkout only when its normalized `origin` matches the
-target. Otherwise inspect only immediate child directories of the roots in
-`DR_AGENTS_REPO_ROOTS`, matching exclusively by normalized `origin`. When the
-variable is unset, use the parent of the current repository, or the parent of
-the current directory outside a repository. A directory name is never
-evidence. Skip missing roots with a warning. Multiple matching checkouts are
-ambiguous and require a handoff listing every candidate.
+target. Otherwise inspect immediate child directories, including symlinks to
+directories, of the roots in `DR_AGENTS_REPO_ROOTS`, matching exclusively by
+normalized `origin`. When the variable is unset, use the parent of the current
+repository, or the parent of the current directory outside a repository. A
+directory name is never evidence. Skip missing roots with a warning. Multiple
+matching checkouts are ambiguous and require a handoff listing every candidate.
 
 ## Modes (RF-06, RF-07)
 
