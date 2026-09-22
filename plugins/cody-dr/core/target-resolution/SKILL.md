@@ -17,6 +17,8 @@ variable itself.
 - In `remote-only` mode, do not load the current directory's profile or run git
   there on behalf of the target. Use repository-qualified remote reads and
   declare `**Profile:** none (remote-only)`.
+- In `remote-only` mode, a separately authorized branch write uses
+  `scripts/remote-write.sh`; with a checkout available, never invoke it.
 - Always print the contract's `**Target:**` line before target-dependent output.
 
 Resolution is read-only and grants no publication or mutation authority.

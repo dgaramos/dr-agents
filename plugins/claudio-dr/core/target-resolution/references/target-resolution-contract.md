@@ -49,6 +49,30 @@ its path or `none (no profile at checkout)`. In `remote-only` mode, load no
 profile and report `none (remote-only)`. Never apply the current directory's
 profile to another target.
 
+## Remote branch writes (RF-08, RNF-04)
+
+In `remote-only` mode, a separately authorized write creates or updates a
+branch in the target with
+`core/target-resolution/scripts/remote-write.sh OWNER/REPO BASE_BRANCH
+NEW_BRANCH MANIFEST_PATH MESSAGE_FILE [--update]`, where the manifest is
+`[{"path":"<path in the target>","file":"<absolute local path>"}]`.
+
+The script uses the authenticated `gh` session and never reads, stores, or
+accepts a token. It reads the new ref first and refuses an existing branch
+unless `--update` is passed, so no blob, tree, or commit is created before that
+check. It then reads the base ref and its commit, uploads one base64 blob per
+manifest entry, creates one tree on the base tree, creates one commit whose
+`message` is the message file byte for byte, and creates the ref — or, with
+`--update`, moves it with `force: false`. File bytes and the message are passed
+through `jq`-built JSON to `gh api --input`; they are never interpolated into a
+shell word.
+
+It prints `{"commit":"<sha>","ref":"refs/heads/<branch>","files":<count>}` and,
+on failure, reports already-created SHAs on stderr. It never opens a pull
+request, and the commit is authored by the authenticated personal account, so
+any adapter co-authorship must appear in the message file. When a checkout is
+available, use it; this script is for `remote-only` mode.
+
 ## Publisher selection at the target (RF-07)
 
 When a separately authorized workflow publishes, select the publisher against
