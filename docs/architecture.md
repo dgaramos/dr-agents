@@ -28,6 +28,7 @@ commands, branch names, credentials, labels, or remote references.
 | `core/findings-handling/` | `findings-contract.md` | `handle-findings` |
 | `core/issue-authoring/` | `issue-contract.md` | `author-issue` |
 | `core/design-discovery/` | `design-discovery-contract.md` | `design-discovery` |
+| `core/target-resolution/` | `target-resolution-contract.md` | `target-resolution` |
 | `core/issue-workflow/` | `workflow-contract.md`, `start-issue-contract.md`, `plan-implementation-contract.md`, `implement-issue-contract.md`, `ship-issue-contract.md`, `execute-issue-contract.md` | `start-issue`, `plan-implementation`, `implement-issue`, `ship-issue`, `execute-issue` |
 
 ### Adapters
@@ -107,13 +108,14 @@ flowchart TD
 ```mermaid
 flowchart TD
     U["User invokes skill"]
+    TR["Resolve target\nexplicit → specs source → cwd origin"]
     AD["Adapter SKILL.md\nsets identity · references core contract path"]
     CO["Core contract\ndefines behavior: evidence, triage, publication boundary"]
     PR["Profile (if loaded)\nadds project rules: architecture, quality command, publisher"]
     OUT["Output\nformatted finding / draft / summary"]
     PUB["Publisher\ngenerates installation token\nposts as reviewer bot · verifies authorship"]
 
-    U --> AD --> CO --> PR --> OUT
+    U --> TR --> AD --> CO --> PR --> OUT
     OUT -->|"authorized publication\nApp-first routing with evidence-based fallback"| PUB
 ```
 

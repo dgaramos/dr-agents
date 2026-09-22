@@ -11,12 +11,20 @@ the single behavioral source of truth for all adapters:
 | Issue authoring | `core/issue-authoring/references/` |
 | Findings handling | `core/findings-handling/references/` |
 | Issue-to-change workflow and test-first planning | `core/issue-workflow/references/` + `core/issue-workflow/skills/` |
+| Target resolution | `core/target-resolution/` |
 
 ## Adapters
 
 Both adapters implement the same portable contracts. Their intentional
 differences are packaging and invocation only — they must not change the meaning
 of any portable contract without documenting a version break here.
+
+Both runtimes honor `DR_AGENTS_REPO_ROOTS`, a colon-separated list of local
+directories whose immediate children may be target checkouts. Matching uses
+the normalized `origin` remote, never the child directory name. When unset,
+the resolver searches the parent of the current repository (or current
+directory when outside git). This behavior is identical in Claude Code and
+Codex.
 
 ## Canonical reviewer identities
 

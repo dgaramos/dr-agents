@@ -1,7 +1,8 @@
 # Project profile discovery contract
 
-Before a project-aware workflow starts, establish the repository root from the
-current working directory and inspect exactly this location:
+Before a project-aware workflow starts, resolve its target through
+`core/target-resolution/references/target-resolution-contract.md`. When that
+result supplies a checkout, inspect exactly this location:
 
 ```text
 <repository-root>/.dr-agents/*/PROFILE.md
@@ -17,10 +18,13 @@ catalog checkout is available. It prints the sole matching profile path.
 - More than one match: stop and ask the caller to name the intended profile;
   never choose one by directory order.
 
-When the explicit target is in another repository, discovery runs against that
-repository's checkout with `--root <checkout>` rather than the current working
-directory, and the summary names the checkout it used. This states which
-repository is inspected; it does not describe where the checkout comes from.
+The current working directory is the repository root only for the special case
+of an implicit target whose resolved checkout is that directory. When an
+explicit target is in another repository, discovery runs against its resolved
+checkout with `--root <checkout>` and the summary names the profile and its
+checkout-relative origin. Without a checkout, do not inspect the current
+directory: apply generic rules and declare `Profile: none (remote-only)`.
+Never apply the current directory's profile to another target.
 
 Profiles are target-project data. Do not copy them into plugins, core, or a
 global agent. A wrapper may name an explicit profile for backwards
