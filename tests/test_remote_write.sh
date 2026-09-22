@@ -39,16 +39,50 @@ if [[ -n "$input" && "$input" != "-" ]]; then
 elif [[ -n "$input" ]]; then
   cat >"$GH_CALLS/$call_index.json"
 fi
+mkdir -p "$GH_STATE"
+if [[ "$method" == POST && "$endpoint" == */git/commits ]]; then
+  printf '%s\n' "$(jq -r '.parents[0]' "$GH_CALLS/$call_index.json")" \
+    >"$GH_STATE/parent-of-${FAKE_COMMIT_SHA:-commitsha}"
+fi
+# The fake models the two server behaviors that matter here: gh reports an
+# absent ref as `HTTP 404` and every other failure with its own status, and
+# GitHub refuses a `force:false` ref move unless the new commit descends from
+# the ref's current head. Without that ancestry check the fake would accept a
+# PATCH the real API rejects, which is exactly how the diverged-parent defect
+# stayed invisible.
+readonly head_sha="${FAKE_HEAD_SHA:-headsha}"
 case "$endpoint" in
   */git/ref/heads/feature)
-    [[ "${FAKE_HEAD_EXISTS:-0}" == 1 ]] || { echo "gh: Not Found" >&2; exit 1; }
-    echo '{"object":{"sha":"headsha"}}' ;;
+    if [[ -n "${FAKE_PRECHECK_STATUS:-}" ]]; then
+      echo "gh: Internal Server Error (HTTP $FAKE_PRECHECK_STATUS)" >&2
+      exit 1
+    fi
+    [[ "${FAKE_HEAD_EXISTS:-0}" == 1 ]] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+    printf '{"object":{"sha":"%s"}}\n' "$head_sha" ;;
   */git/ref/heads/main) echo '{"object":{"sha":"base123"}}' ;;
   */git/commits/base123) echo '{"tree":{"sha":"tree123"}}' ;;
+  */git/commits/"$head_sha") echo '{"tree":{"sha":"headtree"}}' ;;
+  */git/commits/*) echo "fake gh: unexpected commit read $endpoint" >&2; exit 1 ;;
   */git/blobs) echo "{\"sha\":\"blob$call_index\"}" ;;
   */git/trees) echo '{"sha":"newtree"}' ;;
-  */git/commits) echo '{"sha":"commitsha"}' ;;
-  */git/refs|*/git/refs/heads/feature) echo '{"ref":"refs/heads/feature"}' ;;
+  */git/commits)
+    jq -e --arg parent "${FAKE_EXPECT_PARENT:-}" \
+      'if $parent == "" then true else .parents == [$parent] end' \
+      "$GH_CALLS/$call_index.json" >/dev/null \
+      || { echo "fake gh: commit parent mismatch" >&2; exit 1; }
+    printf '{"sha":"%s"}\n' "${FAKE_COMMIT_SHA:-commitsha}" ;;
+  */git/refs) echo '{"ref":"refs/heads/feature"}' ;;
+  */git/refs/heads/feature)
+    # A non-force ref move must fast-forward: the pushed commit has to descend
+    # from the ref's current head. The fake knows each created commit's parent.
+    pushed="$(jq -r '.sha' "$GH_CALLS/$call_index.json")"
+    forced="$(jq -r '.force' "$GH_CALLS/$call_index.json")"
+    parent="$(cat "$GH_STATE/parent-of-$pushed" 2>/dev/null || echo '')"
+    if [[ "$forced" != true && "$parent" != "$head_sha" ]]; then
+      echo "gh: Update is not a fast forward (HTTP 422)" >&2
+      exit 1
+    fi
+    echo '{"ref":"refs/heads/feature"}' ;;
   *) echo "fake gh: unexpected endpoint $endpoint" >&2; exit 1 ;;
 esac
 FAKE
@@ -78,8 +112,9 @@ MESSAGE
 run_writer() {
   local log_directory="$temporary_directory/$1"
   shift
-  mkdir -p "$log_directory/calls"
+  mkdir -p "$log_directory/calls" "$log_directory/state"
   GH_LOG="$log_directory/log" GH_CALLS="$log_directory/calls" \
+    GH_STATE="$log_directory/state" \
     "$writer" "$@"
 }
 
@@ -139,14 +174,94 @@ fi
 grep -qi 'feature' "$temporary_directory/existing.err" || fail "the failure must name the branch"
 
 # --- --update path ----------------------------------------------------------
+# The update must descend from the branch's current head, not from the base
+# branch. The fake enforces that with the same ancestry rule GitHub applies to
+# a `force:false` ref move, so a sibling commit fails here instead of only in
+# production.
 update_output="$(FAKE_HEAD_EXISTS=1 run_writer update o/r main feature "$manifest" "$message_file" --update)"
 readonly update_log="$temporary_directory/update/log"
-tail -n 1 "$update_log" | grep -qx 'PATCH repos/o/r/git/refs/heads/feature' \
-  || fail "--update must PATCH the existing ref: $(cat "$update_log")"
-update_calls="$(wc -l <"$update_log" | tr -d ' ')"
-jq -e '.sha == "commitsha" and .force == false' "$temporary_directory/update/calls/$update_calls.json" >/dev/null \
-  || fail "--update must never force: $(cat "$temporary_directory/update/calls/$update_calls.json")"
+update_expected="$(cat <<'LOG'
+GET repos/o/r/git/ref/heads/feature
+GET repos/o/r/git/commits/headsha
+POST repos/o/r/git/blobs
+POST repos/o/r/git/blobs
+POST repos/o/r/git/trees
+POST repos/o/r/git/commits
+PATCH repos/o/r/git/refs/heads/feature
+LOG
+)"
+[[ "$(cat "$update_log")" == "$update_expected" ]] || {
+  echo "--- actual ---" >&2; cat "$update_log" >&2
+  fail "--update must read the existing head and never the base branch"
+}
+readonly update_calls="$temporary_directory/update/calls"
+jq -e '.parents == ["headsha"] and .tree == "newtree"' "$update_calls/6.json" >/dev/null \
+  || fail "--update must parent from the existing head: $(cat "$update_calls/6.json")"
+jq -e '.base_tree == "headtree"' "$update_calls/5.json" >/dev/null \
+  || fail "--update must build on the existing head's tree: $(cat "$update_calls/5.json")"
+jq -e '.sha == "commitsha" and .force == false' "$update_calls/7.json" >/dev/null \
+  || fail "--update must never force: $(cat "$update_calls/7.json")"
 jq -e '.commit == "commitsha" and .files == 2' <<<"$update_output" >/dev/null || fail "update summary: $update_output"
+
+# --- the fake's ancestry rule is real ---------------------------------------
+# Proves the guard above can fail: a PATCH whose commit parents from the base
+# instead of the current head is rejected, which is what the previous script
+# produced on every repeat write.
+readonly diverged_calls="$temporary_directory/diverged/calls"
+readonly diverged_state="$temporary_directory/diverged/state"
+mkdir -p "$diverged_calls" "$diverged_state"
+: >"$temporary_directory/diverged/log"
+jq -n '{parents:["base123"], tree:"newtree", message:"sibling"}' >"$temporary_directory/diverged-commit.json"
+jq -n '{sha:"commitsha", force:false}' >"$temporary_directory/diverged-ref.json"
+run_fake() {
+  GH_LOG="$temporary_directory/diverged/log" GH_CALLS="$diverged_calls" \
+    GH_STATE="$diverged_state" gh api --method "$1" "$2" --input "$3"
+}
+run_fake POST repos/o/r/git/commits "$temporary_directory/diverged-commit.json" >/dev/null
+set +e
+run_fake PATCH repos/o/r/git/refs/heads/feature "$temporary_directory/diverged-ref.json" \
+  >/dev/null 2>"$temporary_directory/diverged.err"
+diverged_status=$?
+set -e
+[[ "$diverged_status" -ne 0 ]] || fail "the fake must reject a non-fast-forward PATCH"
+grep -q 'fast forward' "$temporary_directory/diverged.err" || fail "rejection must name the fast-forward rule"
+
+# --- pre-check failure that is not a 404 must fail closed -------------------
+set +e
+FAKE_PRECHECK_STATUS=500 run_writer precheck o/r main feature "$manifest" "$message_file" \
+  >/dev/null 2>"$temporary_directory/precheck.err"
+precheck_status=$?
+set -e
+[[ "$precheck_status" -ne 0 ]] || fail "a non-404 pre-check failure must exit non-zero"
+if grep -qE '^(POST|PATCH)' "$temporary_directory/precheck/log"; then
+  echo "--- actual ---" >&2; cat "$temporary_directory/precheck/log" >&2
+  fail "no Git object may be created when branch existence is unknown"
+fi
+grep -q 'could not determine' "$temporary_directory/precheck.err" \
+  || fail "the failure must say existence could not be determined: $(cat "$temporary_directory/precheck.err")"
+
+# --- authorship passthrough --------------------------------------------------
+# Without the flags the commit carries no identity and GitHub attributes it to
+# the authenticated account; with them, authorship is chosen by the caller.
+jq -e 'has("author") == false and has("committer") == false' "$calls/7.json" >/dev/null \
+  || fail "authorship must stay implicit when no identity is passed"
+
+run_writer authored o/r main feature "$manifest" "$message_file" \
+  --author 'A Name <a@example.invalid>' --committer 'B Name <b@example.invalid>' >/dev/null
+readonly authored_commit="$temporary_directory/authored/calls/7.json"
+jq -e '.author == {name:"A Name", email:"a@example.invalid"}
+  and .committer == {name:"B Name", email:"b@example.invalid"}' "$authored_commit" >/dev/null \
+  || fail "identity passthrough: $(cat "$authored_commit")"
+jq -j '.message' "$authored_commit" | cmp -s - "$message_file" \
+  || fail "an explicit identity must not alter the message"
+
+set +e
+run_writer malformed o/r main feature "$manifest" "$message_file" --author 'no-email' \
+  >/dev/null 2>"$temporary_directory/malformed.err"
+malformed_status=$?
+set -e
+[[ "$malformed_status" -eq 2 ]] || fail "a malformed identity must exit 2"
+grep -q "Name <email>" "$temporary_directory/malformed.err" || fail "the identity failure must state the expected form"
 
 # --- edge case: a manifest entry whose local file is missing ----------------
 readonly bad_manifest="$temporary_directory/bad.json"
