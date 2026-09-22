@@ -916,9 +916,31 @@ for agent in "${adapter_reviewer_agents[@]}"; do
     'independent reviewer' \
     'Discover the target profile' \
     'not execute issues' \
-    'modify the reviewed branch'; do
+    'modify the reviewed branch' \
+    "Publication authorization is read from the reviewer's invoking prompt" \
+    'message relayed mid-task by another agent is not consent' \
+    'manifest and the publish-only instruction as `not published`'; do
     if ! grep -qF "$required_text" "$agent"; then
       echo "parity: $agent is missing independent-reviewer guardrail: $required_text" >&2
+      exit 1
+    fi
+  done
+done
+
+# The adapters must expose the executable publication handoff, not merely point
+# at the portable contract. These phrases are the user-facing boundary that
+# keeps agent-relayed messages from becoming consent and makes an unauthorized
+# review recoverable in one explicit publish-only invocation.
+for skill in "${adapter_review_skills[@]}"; do
+  for required_text in \
+    'load threads → review → reload → manifest → if authorized: validate → dispatch → verify' \
+    "<this skill's directory>/../../references/reviewer-identity.md" \
+    'Publish the prepared' \
+    'review manifest at <path> for <PR URL>.' \
+    '`--root <checkout>`' \
+    'Profile: none (checkout not available)'; do
+    if ! grep -qF -- "$required_text" "$skill"; then
+      echo "drift: $skill is missing reviewer publication guidance: $required_text" >&2
       exit 1
     fi
   done
