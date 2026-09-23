@@ -216,7 +216,7 @@ assert_contains "$ship_change" 'Metadata publisher:' \
 # AC-14: the clean-tree and expected-branch gate precedes the first mutation.
 # Without it a flow commits into whatever state the resolved checkout was left
 # in by unrelated work.
-for flow_contract in "$start_issue" "$ship_issue"; do
+for flow_contract in "$start_issue" "$ship_issue" "$ship_change"; do
   assert_contains "$flow_contract" 'before any mutation' \
     "gate mutation on a clean tree and the expected branch"
   assert_contains "$flow_contract" 'Checkout state:' \

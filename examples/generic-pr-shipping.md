@@ -35,6 +35,23 @@ The outcome identifies the personal actor; it never labels that action as App
 publication. Do not request organization-Projects permission for a user-owned
 Project.
 
+## Pre-mutation checkout gate
+
+Shipping mutates the resolved checkout, so the clean-tree and
+expected-branch gate runs before the push — including when `ship-change` is
+invoked on its own rather than through `ship-issue`:
+
+```md
+## Handoff — ship-change
+
+**Stopped at:** /src/widgets is on `main`, expected `42-feat/widget-cache`
+**Last verified head:** `a1b2c3d`
+**Next step:** check out the working branch, then resume shipping
+```
+
+A clean checkout reports `Checkout state: clean on <branch-name>` and
+proceeds.
+
 ## Lifecycle handoff reporting
 
 When a lifecycle phase inspects a repository `CONTRIBUTING.md`, its handoff

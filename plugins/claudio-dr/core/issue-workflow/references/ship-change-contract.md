@@ -19,6 +19,15 @@ command as `git -C <checkout>` — `git -C <checkout> status`,
 A bare git command runs in whatever directory the agent started in, which is
 not necessarily the target.
 
+Verify the resolved checkout before any mutation — the final gate's commits,
+the push, or the pull request — with `git -C <checkout> status --porcelain` and
+`git -C <checkout> rev-parse --abbrev-ref HEAD`. A dirty working tree or a
+branch other than the expected working branch means the checkout holds work
+this flow did not produce. Report the observed state and stop with a handoff;
+do not stash, reset, check out, or commit around it. Record the outcome in the
+`Checkout state:` output field. This gate applies to a standalone `ship-change`
+invocation as much as to one reached through `ship-issue`.
+
 ## Steps
 
 1. Apply PR-body and delivery-metadata guidance discovered from `CONTRIBUTING.md`
@@ -103,6 +112,7 @@ not necessarily the target.
 **Target:** <owner/repository (checkout: /absolute/path)>
 **Profile:** <name (<checkout>/.dr-agents/<dir>/PROFILE.md) | none (no profile at checkout)>
 **Branch:** `<branch-name>`
+**Checkout state:** <clean on `<branch-name>` | dirty: <paths> | unexpected branch: `<observed>`>
 **Final quality gate:** <passed|failed: reason>
 **PR:** <not requested|not published|<URL>>
 **PR publisher:** <verified App actor|personal fallback: @login|not published: reason>
