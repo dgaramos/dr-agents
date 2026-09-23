@@ -20,9 +20,18 @@ and summary format. Load [profile-contract](references/profile-contract.md) to
 understand what a target profile may and must not provide, including publisher
 capability and post-publication verification requirements.
 
-Discover the target profile with
+Resolve the target before loading any profile. Follow
+`core/target-resolution/references/target-resolution-contract.md`: an explicit
+pull request, branch, or repository reference in the request wins over the
+current directory, and the current directory is the target only when the
+request names none. Then discover the profile at the resolved checkout with
 `core/profile-discovery/references/profile-discovery-contract.md` before
-applying project-specific rules.
+applying project-specific rules. Never apply the current directory's profile to
+another target.
+
+In `checkout` mode, read the diff locally in that checkout. In `remote-only`
+mode, read the target through repository-qualified remote calls such as
+`gh pr diff --repo owner/repository`, load no profile, and apply generic rules.
 
 When a profile declares additional review context, load
 [knowledge-sources-contract](references/knowledge-sources-contract.md) before

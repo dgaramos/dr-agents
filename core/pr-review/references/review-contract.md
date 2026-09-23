@@ -1,9 +1,23 @@
 # Portable review contract
 
+Resolve the target repository before collecting anything, following
+`core/target-resolution/references/target-resolution-contract.md`. The explicit
+reference under review determines the target; the current directory is the
+target only when no explicit reference was given. Resolution decides where the
+profile is discovered, where the diff is read, and which repository any
+separately authorized publication is selected against.
+
 Collect the explicit PR/ref, base, current head, changed files, relevant issue,
-checks, and existing review discussion. Load the target project's profile before
-evaluating the diff. A missing profile means review only generic correctness,
-security, compatibility, and evidence; state that limitation in the summary.
+checks, and existing review discussion. In `checkout` mode, read them in the
+resolved checkout; in `remote-only` mode, read them with `gh --repo
+owner/repository` or `gh api repos/owner/repository/...` and run no git command
+in the current directory on the target's behalf.
+
+Load the resolved target's profile before evaluating the diff, and report its
+origin path in the summary. A missing profile — whether the checkout has none or
+the target is `remote-only` — means review only generic correctness, security,
+compatibility, and evidence; state that limitation in the summary. Never fall
+back to the current directory's profile for another target.
 
 Read changed code with its callers, tests, and public contract. Do not treat a
 diff in isolation as proof of behavior. For local work, report which staged,
@@ -404,13 +418,14 @@ still carries the meaning.
 
 **Verdict:** `<approve|request changes|comment|no findings>` · 🔴 Critical: N · 🟠 Major: N · 🟡 Minor: N · **Merge risk:** `<minimal|low|moderate|high>`
 **Next step:** <single most important action, linking `#discussion_r<id>` when its finding is inline>
+**Target:** <owner/repository (checkout: /absolute/path) | owner/repository (remote-only)>
 
 <details>
 <summary>Scope, checks and limits</summary>
 
 **Scope:** <PR/ref>, `<base>` → `<head>`
 **Reviewed head:** `<sha>`
-**Profile:** <profile name or none>
+**Profile:** <name (<checkout>/.dr-agents/<dir>/PROFILE.md) | none (no profile at checkout) | none (remote-only)>
 **Language:** <language> (source: `<profile|repo declaration|README|default>`)
 **Checks:** CI: N/N green on `<sha>` · Local: <gates run, or none>
 **Not run:** <check and reason, or none>
@@ -556,6 +571,7 @@ located by the prior-head rule above.
 ```md
 ## Re-review — <PR/ref>
 
+**Target:** <owner/repository (checkout: /absolute/path) | owner/repository (remote-only)>
 **Superseded:** review `<id>` at `<sha>`
 **Previous reviewed head:** `<sha or unavailable>`
 **Current head:** `<sha>`

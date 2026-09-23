@@ -100,6 +100,7 @@ readonly required_paths=(
   "core/target-resolution/references/target-resolution-contract.md"
   "core/target-resolution/scripts/resolve-target.sh"
   "core/target-resolution/scripts/remote-write.sh"
+  "tests/test_target_adoption.sh"
   "tests/test_resolve_target.sh"
   "tests/test_remote_write.sh"
   "core/spec/SKILL.md"
@@ -720,6 +721,10 @@ bash tests/test_stub_version_guard.sh
 # The seventh publisher route (dr-agents#269). Executes the shipped script
 # against a fake gh, including the dr-agents#258 ordering property.
 bash tests/test_publish_issue_comment.sh
+# Adoption of the target-resolution contract by review-pr and author-issue
+# (dr-agents#332, dr-agents#334). The derived, self-extending forms of these
+# rules arrive with dr-agents#330; until then this test is the gate.
+bash tests/test_target_adoption.sh
 tests/test_discover_project_profile.sh
 tests/test_plugin_core_bundles.sh
 tests/test_helper_agents.sh
@@ -919,7 +924,9 @@ for agent in "${adapter_reviewer_agents[@]}"; do
 
   for required_text in \
     'independent reviewer' \
-    'Discover the target profile' \
+    'Resolve the target repository first' \
+    'core/target-resolution/references/target-resolution-contract.md' \
+    'core/profile-discovery/references/profile-discovery-contract.md' \
     'not execute issues' \
     'modify the reviewed branch' \
     "Publication authorization is read from the reviewer's invoking prompt" \
@@ -942,8 +949,8 @@ for skill in "${adapter_review_skills[@]}"; do
     "<this skill's directory>/../../references/reviewer-identity.md" \
     'Publish the prepared' \
     'review manifest at <path> for <PR URL>.' \
-    '`--root <checkout>`' \
-    'Profile: none (checkout not available)'; do
+    'core/target-resolution/references/target-resolution-contract.md' \
+    'Profile: none (remote-only)'; do
     if ! grep -qF -- "$required_text" "$skill"; then
       echo "drift: $skill is missing reviewer publication guidance: $required_text" >&2
       exit 1

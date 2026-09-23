@@ -111,8 +111,12 @@ publication solely because no profile exists.
 ## Publication boundary
 
 Publish only when the user explicitly authorizes issue publication. Follow
-`core/pr-review/references/publication-routing-contract.md`: use the executing
-adapter's `create-issue` App publisher whenever available. An absent profile
+`core/pr-review/references/publication-routing-contract.md`, applied to the
+repository resolved by
+`core/target-resolution/references/target-resolution-contract.md`: select the
+executing adapter's `create-issue` App publisher against the resolved target
+with `core/pr-review/scripts/select-publisher.sh <target> <workflow>`, not
+against the current directory's repository, and use it whenever it is active. An absent profile
 does not itself justify personal fallback; discover the documented publisher.
 
 If evidence proves the App operation unavailable, the existing authenticated
@@ -129,10 +133,15 @@ authorization or a usable route, return the complete draft as `not published`.
    the authenticated personal `gh` account. Do not query Projects while
    creating an ordinary issue; handle Project membership separately.
 3. Retain the applicable repository issue template's headings and structure.
-   Without a profile, read repository guidance and use only known metadata;
-   do not invent labels, milestones, or Project requirements.
+   Read the template from the resolved target: from the checkout in `checkout`
+   mode, or with `gh api repos/<target>/contents/.github/ISSUE_TEMPLATE/...` in
+   `remote-only` mode, where no git command runs in the current directory on the
+   target's behalf. Without a profile, read repository guidance and use only
+   known metadata; do not invent labels, milestones, or Project requirements.
 4. Retrieve the created issue and verify author, repository, title, and body
-   against the selected route. A mismatched author or target is a failed
+   against the selected route. The issue's repository must be the resolved
+   target; an issue created anywhere else is a failed publication regardless of
+   its content. A mismatched author or target is a failed
    publication; inspect any existing result before retrying. A failure whose
    publication outcome is unknown must never trigger blind personal fallback.
 
@@ -143,8 +152,9 @@ Emit one summary block per authoring session:
 ```md
 ## Issue draft — <author name>
 
+**Target:** <owner/repository (checkout: /absolute/path) | owner/repository (remote-only)>
 **Title:** <issue title>
-**Profile:** <profile name or none>
+**Profile:** <name (<checkout>/.dr-agents/<dir>/PROFILE.md) | none (no profile at checkout) | none (remote-only)>
 **Profile-owned fields:** <applied: labels, milestone, … | unknown: profile not loaded>
 **Publication:** <not requested|not published|published by <author name> as issue #N>
 ```
