@@ -22,10 +22,11 @@
 # the re-review prior-head rule ignores body-less review events, and the
 # re-review preamble names the review it supersedes.
 #
-# Finally it enforces the scannable summary: the body leads with the verdict
-# strip and its severity badges, the strip stays inside a rendered budget, the
-# required Next step follows it, every scope/checks/limits field sits inside the
-# collapsed block, the Checks line is trimmed to CI and local gates, the three
+# Finally it enforces the scannable summary: the body leads with the target and
+# profile lines required by RF-11 of the target-resolution contract, the verdict
+# strip and its severity badges follow them, the strip stays inside a rendered
+# budget, the required Next step follows it, every remaining scope/checks/limits
+# field sits inside the collapsed block, the Checks line is trimmed to CI and local gates, the three
 # section size gates are stated, and no confidence percentage reaches the
 # reader while the gate and the manifest record remain.
 set -euo pipefail
@@ -173,7 +174,8 @@ if ! grep -qF 'Superseded:' "$contract_path"; then
 fi
 
 # ---------------------------------------------------------------------------
-# Scannable summary: verdict first, next step, collapsed scope block
+# Scannable summary: target and profile first, then verdict, next step,
+# collapsed scope block
 # ---------------------------------------------------------------------------
 
 # The acceptance signal is rendered lines, not source lines, so the strip is
@@ -201,10 +203,24 @@ field_run="$(summary_field_run)"
 if [[ -z "$field_run" ]]; then
   violation "$contract_path defines no review summary field run"
 else
+  # RF-11 order: target, then profile, then the verdict strip, then next step.
+  # The guard still enforces an order -- it is the order that changed. A
+  # presence-only check would pass for a summary that declares its target
+  # somewhere below the fold, which is the shape RF-11 exists to forbid.
   first_field="$(head -n 1 <<<"$field_run")"
-  if [[ "$first_field" != '**Verdict:**'* ]]; then
-    violation "the review summary does not lead with the verdict strip; first field is: $first_field"
+  second_field="$(sed -n 2p <<<"$field_run")"
+  third_field="$(sed -n 3p <<<"$field_run")"
+  if [[ "$first_field" != '**Target:**'* ]]; then
+    violation "the review summary does not lead with the target; first field is: $first_field"
   fi
+  if [[ "$second_field" != '**Profile:**'* ]]; then
+    violation "the review summary does not carry the profile as its second field; got: $second_field"
+  fi
+  if [[ "$third_field" != '**Verdict:**'* ]]; then
+    violation "the verdict strip does not follow the target and profile lines; third field is: $third_field"
+  fi
+  # The badge and budget checks belong to the strip wherever it sits.
+  first_field="$third_field"
   for badge in '🔴 Critical' '🟠 Major' '🟡 Minor' 'Merge risk'; do
     if [[ "$first_field" != *"$badge"* ]]; then
       violation "the verdict strip does not carry '$badge'"
@@ -239,7 +255,9 @@ else
     fi
     open_fields="$(head -n $((collapsed_start - 1)) <<<"$field_run")"
     collapsed_fields="$(tail -n +"$collapsed_start" <<<"$field_run")"
-    for field in 'Scope:' 'Reviewed head:' 'Profile:' 'Language:' 'Checks:' \
+    # `Profile:` is deliberately absent from this list: RF-11 moved it up beside
+    # the target, and it is asserted above as the second open field.
+    for field in 'Scope:' 'Reviewed head:' 'Language:' 'Checks:' \
       'Risk axes:' 'Thread updates:'; do
       if grep -qF "**$field" <<<"$open_fields"; then
         violation "the $field field is above the verdict's collapsed block; it belongs inside 'Scope, checks and limits'"

@@ -24,23 +24,41 @@ pass() {
   echo "ok: $*"
 }
 
-# A summary block's `**Target:**` line must sit immediately under the heading,
-# not anywhere in the file: a target declared after the verdict is a target the
-# reader meets too late. The fence may be three or more backticks, because
-# review-contract.md nests a ```md sample inside a ````md fence.
-assert_target_line() {
-  local file="$1" heading="$2" window="${3:-3}"
-  local line
+# RF-11 is literal: every adopting summary *begins* with the target and profile
+# facts. Not "carries them somewhere near the top" -- begins. So this asserts an
+# order, not a presence: the first `**Field:**` line under the heading must be
+# `**Target:**` and the second must be `**Profile:**`. A window-based presence
+# check passes for a summary that buries provenance under a verdict, which is
+# exactly the shape RF-11 forbids.
+#
+# The fence may be three or more backticks, because review-contract.md nests a
+# ```md sample inside a ````md fence.
+assert_rf11_lead() {
+  local file="$1" heading="$2"
+  local line fields first second
   line="$(grep -n -- "^## ${heading} — " "$file" | head -1 | cut -d: -f1)"
   if [[ -z "$line" ]]; then
     fail "$file has no '## ${heading} — ' summary block"
     return
   fi
-  if sed -n "$((line + 1)),$((line + window))p" "$file" | grep -q '^\*\*Target:\*\*'; then
-    pass "$file '## ${heading} — ' declares **Target:**"
-  else
-    fail "$file '## ${heading} — ' has no **Target:** within ${window} lines of the heading"
+  # The field run is the block of consecutive `**Field:**` lines under the
+  # heading, skipping blank lines only. Anything else ends the run.
+  fields="$(tail -n +"$((line + 1))" "$file" | awk '
+    /^\*\*/ { print; next }
+    NF == 0 { next }
+    { exit }
+  ')"
+  first="$(sed -n 1p <<<"$fields")"
+  second="$(sed -n 2p <<<"$fields")"
+  if [[ "$first" != '**Target:**'* ]]; then
+    fail "$file '## ${heading} — ' does not begin with **Target:**; first field is: ${first:-<none>}"
+    return
   fi
+  if [[ "$second" != '**Profile:**'* ]]; then
+    fail "$file '## ${heading} — ' does not carry **Profile:** as its second field; got: ${second:-<none>}"
+    return
+  fi
+  pass "$file '## ${heading} — ' begins with **Target:** then **Profile:**"
 }
 
 assert_contains() {
@@ -100,12 +118,11 @@ assert_contains core/pr-review/SKILL.md "$contract" \
   "reference the target-resolution contract"
 assert_contains core/pr-review/references/review-contract.md "$contract" \
   "reference the target-resolution contract"
-# The review block is the one exception to "target first": verify-review-surface.sh
-# requires the verdict strip to lead, because a reader who must scroll past
-# provenance to learn the verdict has been handed a worse summary. Target sits
-# directly under **Next step:**, still above the fold, so the window is 4.
-assert_target_line core/pr-review/references/review-contract.md 'Review' 4
-assert_target_line core/pr-review/references/review-contract.md 'Re-review'
+# No exception. RF-11 stays universal in the target-resolution contract and the
+# review summary satisfies it: target and profile lead, verdict and next step
+# follow. verify-review-surface.sh enforces the same order from the other side.
+assert_rf11_lead core/pr-review/references/review-contract.md 'Review'
+assert_rf11_lead core/pr-review/references/review-contract.md 'Re-review'
 
 # The third spelling of an absent profile. The contract names exactly two
 # cases -- `none (remote-only)` and `none (no profile at checkout)` -- and a
@@ -130,7 +147,7 @@ assert_contains core/issue-authoring/SKILL.md "$contract" \
   "reference the target-resolution contract"
 assert_contains core/issue-authoring/references/issue-contract.md "$contract" \
   "reference the target-resolution contract"
-assert_target_line core/issue-authoring/references/issue-contract.md 'Issue draft'
+assert_rf11_lead core/issue-authoring/references/issue-contract.md 'Issue draft'
 
 # The publisher is selected against the resolved target, not the current
 # directory: this is the difference between publishing into the repository the

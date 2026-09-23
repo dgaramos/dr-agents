@@ -158,8 +158,8 @@ Emit one summary block per authoring session:
 ## Issue draft — <author name>
 
 **Target:** <owner/repository (checkout: /absolute/path) | owner/repository (remote-only)>
-**Title:** <issue title>
 **Profile:** <name (<checkout>/.dr-agents/<dir>/PROFILE.md) | none (no profile at checkout) | none (remote-only)>
+**Title:** <issue title>
 **Profile-owned fields:** <applied: labels, milestone, … | unknown: profile not loaded>
 **Publication:** <not requested|not published|published by <author name> as issue #N>
 ```
