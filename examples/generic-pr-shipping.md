@@ -2,9 +2,19 @@
 
 A target profile supplies the values and `apply-pr-metadata` publisher that are
 intentionally absent from the portable core. An explicit issue-execution request
-authorizes `gh pr create`; ship-issue dispatches that publisher and waits for
-its verified App result. Inside the publisher, the installation-token workflow
-may run:
+authorizes normal delivery; ship-issue selects that publisher against the
+resolved target rather than the current directory's repository —
+
+```bash
+core/pr-review/scripts/select-publisher.sh acme/widgets \
+  .github/workflows/publish-<agent>-pr-metadata.yml
+```
+
+— dispatches it qualified with `--repo acme/widgets`, and waits for its
+verified App result. Selecting the publisher at the target and then dispatching
+unqualified runs it in the wrong repository, which is a failed publication
+rather than a recoverable detail. Inside the publisher, the installation-token
+workflow may run:
 
 ```bash
 core/issue-workflow/scripts/apply-pr-metadata.sh \

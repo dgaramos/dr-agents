@@ -18,9 +18,14 @@ When the loaded profile declares a PR template, use it as the PR body shape.
 Retain every heading and fill each section with change-specific information or
 `Not applicable`; do not replace the template with a short generic summary.
 
+Resolve the target first with
+`core/target-resolution/references/target-resolution-contract.md`,
+discover its profile there, and run every git command inside the resolved
+checkout.
+
 Select `create-pr` and `apply-pr-metadata` independently through
-`core/pr-review/references/publication-routing-contract.md`. Prefer and verify
-the executing adapter App; use a personal fallback only with evidence that
-the operation is unavailable. No profile is required to discover the publisher
+`core/pr-review/references/publication-routing-contract.md`, applied to the
+resolved target. Prefer and verify the executing adapter App; use a personal
+fallback only with evidence that the operation is unavailable. No profile is required to discover the publisher
 or perform the authorized action. Verify ordinary metadata separately from
 Projects and report each actual actor as required by the shipping contract.

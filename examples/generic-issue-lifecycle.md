@@ -31,18 +31,34 @@ No further confirmation requested.
 
 ## 1. Start the explicit issue
 
-The caller explicitly asks to execute `#42`. `start-issue` loads the one
-project profile, reads the issue, and checks its declared dependencies before
-creating a branch.
+The caller explicitly asks to execute `#42`. `start-issue` resolves the target
+repository first, discovers the one profile at that target's checkout, reads
+the issue, and checks its declared dependencies. It then verifies the checkout
+is clean and on the base branch before creating anything, and runs every git
+command as `git -C /src/widgets`.
 
 ```md
 ## Start — #42
 
+**Target:** acme/widgets (checkout: /src/widgets)
+**Profile:** widgets (/src/widgets/.dr-agents/widgets/PROFILE.md)
 **Issue:** Document widget cache invalidation
 **Branch:** `42-docs/widget-cache-invalidation` from `main`
-**Profile:** `acme/widgets`
+**Checkout state:** clean on `main`
 **Dependencies:** all resolved
 **Next:** plan-implementation
+```
+
+A checkout holding unrelated work is not a checkout this lifecycle may commit
+into. It stops before the branch exists rather than building on someone else's
+state:
+
+```md
+## Handoff — start-issue
+
+**Stopped at:** /src/widgets is dirty: `src/cache.c`, `docs/cache.md`
+**Last verified head:** `a1b2c3d`
+**Next step:** commit, stash, or discard the unrelated changes, then resume
 ```
 
 If dependency `#41` is still open, the lifecycle stops here instead of
@@ -97,10 +113,21 @@ When the profile supplies a PR template, the body retains every template
 heading and fills each section with a change-specific answer or `Not
 applicable`.
 
+The pull request is opened in the resolved target, not in whatever directory
+the agent started in. `ship-issue` selects the target's `create-pr` publisher
+with `select-publisher.sh acme/widgets
+.github/workflows/publish-<agent>-pr.yml`, dispatches it qualified with
+`--repo acme/widgets`, and then verifies that the PR that came back belongs to
+`acme/widgets`. A PR opened anywhere else is a failed publication, however
+correct its content.
+
 ```md
 ## Ship — #42
 
+**Target:** acme/widgets (checkout: /src/widgets)
+**Profile:** widgets (/src/widgets/.dr-agents/widgets/PROFILE.md)
 **Branch:** `42-docs/widget-cache-invalidation`
+**Checkout state:** clean on `42-docs/widget-cache-invalidation`
 **Final quality gate:** passed
 **PR:** https://github.com/acme/widgets/pull/42
 **Metadata applied:** `documentation`, milestone `v1`, assignee `maintainer`,
@@ -115,7 +142,10 @@ it prepares the same PR payload but does not publish it:
 ```md
 ## Ship — #42
 
+**Target:** acme/widgets (checkout: /src/widgets)
+**Profile:** widgets (/src/widgets/.dr-agents/widgets/PROFILE.md)
 **Branch:** `42-docs/widget-cache-invalidation`
+**Checkout state:** clean on `42-docs/widget-cache-invalidation`
 **Final quality gate:** passed
 **PR:** not published
 **Metadata applied:** none
