@@ -149,8 +149,14 @@ flow with the observed state instead of being committed around.
 
 Where no checkout of `acme/specs` exists, the resolution is `remote-only` and
 the same write goes through `remote-write.sh` with a manifest carrying the
-three trio files and the updated `index.md`. No git command runs in the current
-directory on the specs repository's behalf in either mode.
+three trio files and the updated `index.md`. The branch it pushes is then
+handed to `ship-change` through that flow's remote-only entry point — target,
+head branch, and base branch, no checkout — which selects the publisher at
+`acme/specs`, dispatches qualified, and verifies the PR exactly as the checkout
+path does, reporting `Checkout state: not applicable (remote-only)` and a final
+quality gate of `not applicable`. No git command runs in the current directory
+on the specs repository's behalf in either mode, and no checkout is
+reconstructed to open the pull request.
 
 ## Issue reference and execution
 

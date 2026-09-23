@@ -343,6 +343,18 @@ assert_contains "$spec_contract" 'ship-change' \
 assert_contains "$spec_contract" '--repo <target>' \
   "qualify the publisher dispatch with the resolved target"
 
+# PR #408 finding F2: the remote-only write was handed to a shipping contract
+# that required `checkout` mode and stopped otherwise, so the remote half of
+# AC-13 could commit at the target and never open its pull request. The
+# shipping contract must name a remote-only entry point that publishes an
+# already-pushed branch, and the spec contract must hand over to it.
+assert_contains "$ship_change" 'remote-only' \
+  "accept a remote-only handoff that ships an already-pushed branch"
+assert_contains "$ship_change" 'not applicable (remote-only)' \
+  "report checkout state as not applicable in remote-only mode"
+assert_contains "$spec_contract" "remote-only entry point" \
+  "hand a remote-only spec write to the shipping flow's remote-only entry point"
+
 # The no-authorization outcome must survive the addition of the write path.
 assert_contains "$spec_contract" 'Write: not written' \
   "keep the unauthorized outcome as Write: not written"

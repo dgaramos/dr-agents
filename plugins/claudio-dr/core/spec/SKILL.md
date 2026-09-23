@@ -57,7 +57,9 @@ repository.
      `feat/<slug>` with `git -C <checkout>`, or with
      `core/target-resolution/scripts/remote-write.sh` in `mode: remote-only`.
      Register the slug in the project's `index.md` and open the pull request
-     through the adapter's `ship-change` flow, dispatched `--repo <target>`.
+     through the adapter's `ship-change` flow, dispatched `--repo <target>` —
+     in `mode: remote-only` through that flow's remote-only entry point, which
+     publishes the already-pushed branch and needs no checkout.
 7. Emit the summary block below.
 
 ## Spec summary

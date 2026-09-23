@@ -163,7 +163,11 @@ run git in the current directory on the specs repository's behalf.
 
 Open the pull request through the adapter's `ship-change` flow, which owns
 publisher selection, dispatch, and verification. Do not open it with an ad-hoc
-command. Select the publisher against the resolved target and qualify the
+command. In `mode: remote-only` hand `ship-change` its remote-only entry point
+— target, head branch `feat/<slug>`, and base branch, with no checkout — as
+`core/issue-workflow/references/ship-change-contract.md` defines it; the
+branch `remote-write.sh` already pushed is published, never rebuilt in a
+reconstructed checkout. Select the publisher against the resolved target and qualify the
 dispatch with it — `--repo <target>` or an equivalent repository-qualified API
 call. Selecting the publisher at the target and then dispatching unqualified
 runs it against the current directory's repository: that is a failed

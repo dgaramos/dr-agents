@@ -13,20 +13,37 @@ loading a profile or running any repository-dependent command. Discover the
 profile at that target with `discover-project-profile.sh --root <checkout>`;
 never apply the current directory's profile to another repository.
 
-Shipping mutates a repository, so it requires `checkout` mode. Run every git
-command as `git -C <checkout>` — `git -C <checkout> status`,
-`git -C <checkout> push` — and every repository read as `gh --repo <target>`.
-A bare git command runs in whatever directory the agent started in, which is
-not necessarily the target.
+Shipping mutates a repository, so it requires `checkout` mode whenever this
+flow itself produces the commits or the push. Run every git command as
+`git -C <checkout>` — `git -C <checkout> status`, `git -C <checkout> push` —
+and every repository read as `gh --repo <target>`. A bare git command runs in
+whatever directory the agent started in, which is not necessarily the target.
 
-Verify the resolved checkout before any mutation — the final gate's commits,
-the push, or the pull request — with `git -C <checkout> status --porcelain` and
+There is one `remote-only` entry point, and it ships no commits of its own:
+a caller whose separately authorized write already created and pushed the head
+branch at the target — `core/target-resolution/scripts/remote-write.sh`
+returning `{"commit":...,"ref":"refs/heads/<branch>"}` — hands that branch over
+for publication only. Accept it in `remote-only` mode with the target, the head
+branch, and the base branch, and require no checkout. Confirm the branch exists
+at the target with a repository-qualified read before publishing; a branch this
+flow cannot observe is a failed handoff, not a branch to create. Steps 2 and 5
+below have no checkout to act on: report the final quality gate as
+`not applicable (remote-only: validated by the authorized write)` and perform
+no push, since the branch is already pushed. Every other step — publisher
+selection at the target, qualified dispatch, author and repository
+verification, metadata, Projects, and the handoff — is unchanged and remains
+mandatory. Never reconstruct a checkout to satisfy this path.
+
+In `checkout` mode, verify the resolved checkout before any mutation — the
+final gate's commits, the push, or the pull request — with `git -C <checkout> status --porcelain` and
 `git -C <checkout> rev-parse --abbrev-ref HEAD`. A dirty working tree or a
 branch other than the expected working branch means the checkout holds work
 this flow did not produce. Report the observed state and stop with a handoff;
 do not stash, reset, check out, or commit around it. Record the outcome in the
 `Checkout state:` output field. This gate applies to a standalone `ship-change`
-invocation as much as to one reached through `ship-issue`.
+invocation as much as to one reached through `ship-issue`. In `remote-only`
+mode there is no working tree to gate: report
+`Checkout state: not applicable (remote-only)`.
 
 ## Steps
 
@@ -112,8 +129,8 @@ invocation as much as to one reached through `ship-issue`.
 **Target:** <owner/repository (checkout: /absolute/path)>
 **Profile:** <name (<checkout>/.dr-agents/<dir>/PROFILE.md) | none (no profile at checkout)>
 **Branch:** `<branch-name>`
-**Checkout state:** <clean on `<branch-name>` | dirty: <paths> | unexpected branch: `<observed>`>
-**Final quality gate:** <passed|failed: reason>
+**Checkout state:** <clean on `<branch-name>` | dirty: <paths> | unexpected branch: `<observed>` | not applicable (remote-only)>
+**Final quality gate:** <passed|failed: reason|not applicable (remote-only: validated by the authorized write)>
 **PR:** <not requested|not published|<URL>>
 **PR publisher:** <verified App actor|personal fallback: @login|not published: reason>
 **Metadata applied:** <labels, milestone, assignees, reviewers, Projects or none>
