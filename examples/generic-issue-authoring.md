@@ -3,10 +3,19 @@
 With a profile-declared, authorized spec location, authoring may use the trio
 as context and add `Spec: <location>`; without it, no spec source is inferred.
 
-Input: `draft an issue for the missing pagination contract`
+Input: `draft an issue for the missing pagination contract in acme/widgets`
+
+The author first resolves the target through
+`core/target-resolution/references/target-resolution-contract.md`. The
+`owner/repository` reference names `acme/widgets`, so the profile is discovered
+at that repository's resolved checkout — never at the current directory. With no
+checkout available the mode is `remote-only`: the issue template is read with
+`gh api repos/acme/widgets/contents/.github/ISSUE_TEMPLATE/...`, no git command
+runs in the current directory on the target's behalf, and the summary declares
+`Profile: none (remote-only)`.
 
 The author loads `core/issue-authoring/references/issue-contract.md` and the
-target profile before drafting. It produces a complete draft immediately —
+resolved target's profile before drafting. It produces a complete draft immediately —
 without asking questions — unless a material decision cannot be inferred.
 
 Example draft body:
@@ -45,15 +54,21 @@ the summary:
 ```md
 ## Issue draft — Claudio DR
 
+**Target:** acme/widgets (remote-only)
 **Title:** Define the pagination response contract
-**Profile:** none
+**Profile:** none (remote-only)
 **Profile-owned fields:** unknown: profile not loaded
 **Publication:** not requested
 ```
 
 With publisher authorization and a profile that documents `create-issue` mode,
-the issue is created as the configured reviewer bot (Claudio DR or Cody DR) and
-the summary records the resulting issue number.
+the `create-issue` publisher is selected against the resolved target with
+`select-publisher.sh acme/widgets <workflow>`, and the dispatch is qualified
+with `--repo acme/widgets` so it cannot run in the current directory's
+repository. The issue is created as the configured reviewer bot (Claudio DR or
+Cody DR) and the summary records the resulting issue number. The created
+issue's repository is then verified to be the resolved target; an issue created
+anywhere else is a failed publication regardless of its content.
 
 The example contains no labels, assignee, milestone, or credential assumption.
 Both Claudio DR and Cody DR produce equivalent draft structure from the same
