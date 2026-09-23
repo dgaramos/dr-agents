@@ -44,12 +44,14 @@ repository.
    conditions. Report the three resolved files in the handoff; do not infer an
    alternate location or alter the issue body.
 6. Decide the write outcome per the contract's write boundary:
-   - No resolved specs source, or no write authorization: return the trio in
+   The three branches are exclusive and exhaustive; select on whether a source
+   resolved and whether the exact write was explicitly authorized.
+   - No resolved specs source: return the trio in
      the response and report `Write: not written: <reason>`.
-   - Source resolved but the slug is not among the profile's authorized paths,
-     and no write authorization: report
+   - Source resolved and no explicit write authorization: report
      `Write: proposed path specs/<project>/<slug>/` together with the exact
      write invocation that would perform it. Propose; do not write.
+     A resolved source never returns `not written`.
    - Source resolved and the caller explicitly authorized that exact write:
      verify the checkout before any mutation, then write the trio on branch
      `feat/<slug>` with `git -C <checkout>`, or with

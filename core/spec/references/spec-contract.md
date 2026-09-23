@@ -113,13 +113,19 @@ authorized continuous execution.
 A resolved specs source never ends in an inline-only trio. Three outcomes are
 possible, and the summary must state which one applies.
 
-1. **No resolved source, or no write authorization.** Return the complete trio
-   in the response and report `Write: not written: <reason>`.
-2. **Source resolved, slug not among the profile's authorized paths, no write
-   authorization.** Report
+The three conditions are exclusive and exhaustive, and they are selected in
+order on two facts only: whether a specs source resolved, and whether the
+caller explicitly authorized that exact write.
+
+1. **No resolved specs source.** Whatever the authorization state, return the
+   complete trio in the response and report `Write: not written: <reason>`.
+2. **Source resolved, no explicit write authorization.** Report
    `Write: proposed path specs/<project>/<slug>/` and, with it, the
    exact write invocation that would perform it. The proposal is a handoff,
-   not a write: nothing is created, branched, or published.
+   not a write: nothing is created, branched, or published. A slug already
+   among the profile's authorized paths proposes that existing path; a slug
+   outside them proposes a new one and asks for both the path and the write.
+   A resolved source never returns `not written`.
 3. **Source resolved and the caller explicitly authorized that exact write.**
    Write the trio, as described below.
 

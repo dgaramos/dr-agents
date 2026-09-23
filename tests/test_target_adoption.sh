@@ -347,6 +347,30 @@ assert_contains "$spec_contract" '--repo <target>' \
 assert_contains "$spec_contract" 'Write: not written' \
   "keep the unauthorized outcome as Write: not written"
 
+# PR #408 finding F1: phrase presence proved the proposal existed, not that a
+# literal executor would ever reach it. The first outcome once read "No
+# resolved source, or no write authorization", which subsumed the whole
+# proposal branch, so returning `not written` for a resolved source satisfied
+# the decision table. Assert the partition, not the phrases: outcome 1 keys on
+# an unresolved source alone, and a resolved source is stated never to end in
+# `not written`.
+assert_contains "$spec_contract" 'No resolved specs source' \
+  "restrict the not-written outcome to an unresolved source"
+assert_contains "$spec_contract" 'A resolved source never returns `not written`' \
+  "state that a resolved source cannot fall through to not written"
+assert_contains "$spec_contract" 'exclusive and exhaustive' \
+  "declare the write outcomes an exclusive, exhaustive partition"
+assert_contains "$spec_skill" 'No resolved specs source' \
+  "restrict the not-written outcome to an unresolved source"
+assert_contains "$spec_skill" 'A resolved source never returns `not written`' \
+  "state that a resolved source cannot fall through to not written"
+if grep -q 'No resolved source, or no write authorization' "$spec_contract" \
+   || grep -q 'No resolved specs source, or no write authorization' "$spec_skill"; then
+  fail "the write outcomes must not overlap on the no-authorization case"
+else
+  pass "the write outcomes do not overlap on the no-authorization case"
+fi
+
 # AC-14, applied to the entry point this change creates. Writing a trio commits
 # and pushes, so the spec write is a mutating entry point and needs the same
 # clean-tree and expected-branch gate the lifecycle contracts carry. The
