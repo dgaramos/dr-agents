@@ -36,7 +36,10 @@ pass() {
 assert_rf11_lead() {
   local file="$1" heading="$2"
   local line fields first second
-  line="$(grep -n -- "^## ${heading} — " "$file" | head -1 | cut -d: -f1)"
+  # `|| true` keeps the missing-heading branch below reachable: under
+  # `set -euo pipefail` a failing grep in this assignment aborts the whole run
+  # before the intended `fail` is ever recorded.
+  line="$(grep -n -- "^## ${heading} — " "$file" | head -1 | cut -d: -f1 || true)"
   if [[ -z "$line" ]]; then
     fail "$file has no '## ${heading} — ' summary block"
     return
@@ -273,6 +276,94 @@ assert_parity_outside_platform_note() {
 
 assert_parity_outside_platform_note plugins/claudio-dr/skills/start-issue/SKILL.md \
                                     plugins/cody-dr/skills/start-issue/SKILL.md
+
+echo "== dr-agents#327 / dr-agents#333 spec authoring adopts target resolution"
+
+# core/spec had no notion of a target, a checkout, or a write at all: the flow
+# returned the trio inline. These two issues make it the first *writing*
+# adopter, so the assertions cover both halves -- dr-agents#327 owns *when* to
+# propose versus write, dr-agents#333 owns *where and how* the write lands.
+readonly spec_skill='core/spec/SKILL.md'
+readonly spec_contract='core/spec/references/spec-contract.md'
+
+for spec_surface in "$spec_skill" "$spec_contract"; do
+  assert_contains "$spec_surface" "$contract" \
+    "reference the target-resolution contract"
+  # RF-06: the trio is written in the resolved checkout, not in whatever
+  # directory the spec agent was invoked from.
+  assert_contains "$spec_surface" 'git -C <checkout>' \
+    "write the trio inside the resolved checkout"
+done
+
+# AC-08 / RF-11: the spec summary leads with provenance like every other
+# adopting summary. core/spec is not an adopter today, so these lines are added
+# to the block, not reordered within it.
+assert_rf11_lead "$spec_skill" 'Spec'
+assert_rf11_lead "$spec_contract" 'Spec'
+
+# AC-13 (dr-agents#333), *where*: the target of an authorized spec write is the
+# specs repository the caller resolved, reached through the resolver's own
+# specs entrypoint -- not the current checkout's origin.
+assert_contains "$spec_contract" 'from-specs-repository' \
+  "resolve the target from the caller's specs repository"
+assert_contains "$spec_contract" 'source: specs-repository' \
+  "declare the specs-repository resolution source"
+
+# AC-13, *how*, remote half. This path cannot be exercised at runtime here
+# without writing to the specs repository, which this change is not authorized
+# to do, so the contract text is its cover.
+assert_contains "$spec_contract" 'remote-write.sh' \
+  "write through remote-write.sh without a checkout"
+assert_contains "$spec_contract" 'mode: remote-only' \
+  "name the remote-only mode that selects the remote write path"
+
+# AC-16 (dr-agents#327), *when*: a resolved source with an unauthorized slug
+# ends in a proposal carrying the exact invocation, never in an inline-only
+# trio that leaves the caller guessing where it belongs.
+assert_contains "$spec_contract" 'proposed path specs/<project>/<slug>/' \
+  "propose the canonical path for an unauthorized slug"
+assert_contains "$spec_skill" 'proposed path specs/<project>/<slug>/' \
+  "propose the canonical path for an unauthorized slug"
+assert_contains "$spec_contract" 'exact write invocation' \
+  "carry the exact write invocation with the proposal"
+
+# The authorized half: branch, index registration, and the pull request.
+assert_contains "$spec_contract" 'feat/<slug>' \
+  "write the authorized trio on the feat/<slug> branch"
+assert_contains "$spec_contract" 'index.md' \
+  "register the written slug in the project index"
+
+# RF-09: the PR is opened by the adapter's ship-change flow, which already
+# owns App publisher selection, verification, and routing. A spec flow that
+# opens its own PR duplicates that contract and drifts from it.
+assert_contains "$spec_contract" 'ship-change' \
+  "open the pull request through the adapter's ship-change flow"
+# Selecting a publisher at the target and then dispatching unqualified runs it
+# in the current checkout's repository. That is dr-agents#404 finding F1.
+assert_contains "$spec_contract" '--repo <target>' \
+  "qualify the publisher dispatch with the resolved target"
+
+# The no-authorization outcome must survive the addition of the write path.
+assert_contains "$spec_contract" 'Write: not written' \
+  "keep the unauthorized outcome as Write: not written"
+
+# AC-14, applied to the entry point this change creates. Writing a trio commits
+# and pushes, so the spec write is a mutating entry point and needs the same
+# clean-tree and expected-branch gate the lifecycle contracts carry. The
+# dr-agents#406 finding was exactly this gap on a contract a test loop did not
+# enumerate.
+assert_contains "$spec_contract" 'before any mutation' \
+  "gate the authorized write on a clean tree and the expected branch"
+assert_contains "$spec_contract" 'Checkout state:' \
+  "report the verified checkout state"
+
+for surface in plugins/claudio-dr/agents/claudio-spec.md \
+               plugins/cody-dr/agents/cody-spec.md; do
+  assert_contains "$surface" "$contract" "reference the target-resolution contract"
+done
+
+assert_parity plugins/claudio-dr/agents/claudio-spec.md \
+              plugins/cody-dr/agents/cody-spec.md
 
 echo "== no adopting surface tells the agent to use the current repository"
 

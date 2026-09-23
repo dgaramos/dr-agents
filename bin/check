@@ -1134,6 +1134,11 @@ for required_anchor in \
   '[AC-01]' \
   'T01 [AC-01]' \
   'traceability unavailable' \
+  '## Proposing the path, and writing the trio' \
+  'proposed path specs/billing/overdue-invoice-escalations/' \
+  'from-specs-repository' \
+  'feat/overdue-invoice-escalations' \
+  'remote-write.sh' \
   '## Issue reference and execution' \
   'tasks in order' \
   'Verification' \

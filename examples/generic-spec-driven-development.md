@@ -106,6 +106,52 @@ message for each invoice.
 Confirm the host project's retry policy before adding retries.
 ```
 
+## Proposing the path, and writing the trio
+
+`ACME_SPECS_REPOSITORY` being resolvable is not authorization to write. The
+outcome depends on two independent facts: whether the source resolved, and
+whether the caller authorized that exact write.
+
+A request produces the slug `overdue-invoice-escalations`, which the profile
+above does not declare. The source resolved, so the agent does not stop at an
+inline trio — it proposes where the trio belongs and how to put it there:
+
+```md
+**Write:** proposed path specs/billing/overdue-invoice-escalations/
+```
+
+with the exact write invocation it would run, so the caller can authorize it
+verbatim rather than reconstruct it:
+
+```text
+resolve-target.sh --from-specs-repository "$ACME_SPECS_REPOSITORY"
+git -C <checkout> checkout -b feat/overdue-invoice-escalations
+```
+
+Nothing is created, branched, or published by a proposal.
+
+Told explicitly to write it, the agent resolves the target from the specs
+repository (`source: specs-repository`), verifies the checkout before any
+mutation, and reports the result:
+
+```md
+**Target:** acme/specs (checkout: /home/dev/specs)
+**Profile:** billing (/home/dev/specs/.dr-agents/billing/PROFILE.md)
+**Checkout state:** clean on main
+**Write:** written to specs/billing/overdue-invoice-escalations/
+```
+
+It writes the three files on `feat/overdue-invoice-escalations` with
+`git -C <checkout>`, registers the slug in the project's `index.md` in the same
+commit, and opens the pull request through the adapter's `ship-change` flow,
+dispatched `--repo acme/specs`. A dirty tree or an unexpected branch stops the
+flow with the observed state instead of being committed around.
+
+Where no checkout of `acme/specs` exists, the resolution is `remote-only` and
+the same write goes through `remote-write.sh` with a manifest carrying the
+three trio files and the updated `index.md`. No git command runs in the current
+directory on the specs repository's behalf in either mode.
+
 ## Issue reference and execution
 
 After the trio is accepted, the implementation issue records its exact source:
