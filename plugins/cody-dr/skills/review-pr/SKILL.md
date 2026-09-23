@@ -15,12 +15,17 @@ defines scope, evidence, confidence, findings, re-review, publication boundary,
 post-publication verification, and summary format. Use `Cody DR` as the
 reviewer name in the summary and publication fields.
 
-Discover the target profile with
+Resolve the target before loading any profile, per
+`core/target-resolution/references/target-resolution-contract.md`. The explicit
+PR reference wins over the current directory. Then discover the profile at the
+resolved checkout with
 `core/profile-discovery/references/profile-discovery-contract.md` before
-applying project-specific rules. When the explicit PR belongs to a repository
-other than the current checkout, name the target checkout and run discovery
-with `--root <checkout>`. If no checkout is available, continue with generic
-rules and declare `Profile: none (checkout not available)`; never silently use
+applying project-specific rules, and report its origin path.
+
+In `checkout` mode, read the diff in that checkout. In `remote-only` mode, read
+the target with `gh pr diff --repo owner/repository` and `gh api
+repos/owner/repository/...`, run no git command in the current directory on the
+target's behalf, and declare `Profile: none (remote-only)`. Never silently use
 the current repository's profile for another target.
 
 When the target profile declares knowledge sources, load

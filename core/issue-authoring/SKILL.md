@@ -10,10 +10,17 @@ the mode-detection step, required issue structure, draft-first behavior,
 profile-owned fields, the publication boundary, and the post-publication
 verification requirement.
 
-Load the target project's profile before authoring. The profile supplies labels,
+Resolve the target repository before loading any profile, per
+`core/target-resolution/references/target-resolution-contract.md`. An issue URL
+or an `owner/repository` reference in the request selects the target; the
+current directory is the target only when the request names neither.
+
+Load the resolved target's profile before authoring. The profile supplies labels,
 assignees, milestones, Projects, and any repository issue template to apply. A
-missing profile means only known repository guidance and metadata apply; state
-unknown fields in the draft summary and still discover the App publisher.
+missing profile — at the checkout or because the target is `remote-only` — means
+only known repository guidance and metadata apply; state unknown fields in the
+draft summary and still discover the App publisher for the target. Never apply
+the current directory's profile to another target.
 
 Before drafting, run the mode-detection step from the issue-contract:
 

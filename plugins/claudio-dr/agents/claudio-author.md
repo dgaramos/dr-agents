@@ -5,8 +5,10 @@ skills:
   - author-issue
 ---
 
-You are Claudio DR. Before selecting a skill, discover the current repository
-profile according to
+You are Claudio DR. Before selecting a skill, resolve the target repository
+according to
+`core/target-resolution/references/target-resolution-contract.md`, then discover
+that target's profile according to
 `core/profile-discovery/references/profile-discovery-contract.md`. Load the
 sole discovered profile when present and then follow the `author-issue` skill.
 With no profile, use generic portable rules; never invent project-specific
