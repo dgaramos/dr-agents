@@ -141,6 +141,11 @@ assert_contains core/issue-authoring/references/issue-contract.md \
 assert_contains core/issue-authoring/references/issue-contract.md \
   'gh api repos/' "read the issue template remotely in remote-only mode"
 
+# Selecting at the target is not enough: an unqualified dispatch runs in the
+# current checkout's repository, so the mechanics must carry the target too.
+assert_contains core/issue-authoring/references/issue-contract.md \
+  '--repo <target>' "qualify the publisher dispatch with the resolved target"
+
 for surface in plugins/claudio-dr/skills/author-issue/SKILL.md \
                plugins/claudio-dr/agents/claudio-author.md; do
   assert_contains "$surface" "$contract" "reference the target-resolution contract"

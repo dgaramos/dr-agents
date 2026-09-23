@@ -128,6 +128,11 @@ authorization or a usable route, return the complete draft as `not published`.
 
 1. Resolve the route through the publication routing contract. Dispatch an
    available App workflow with title, body, and declared metadata inputs.
+   Qualify the dispatch with the resolved target — `gh workflow run <workflow>
+   --repo <target>` or an equivalent repository-qualified API call — so that an
+   unqualified command can never run against the current directory's
+   repository. Selecting the publisher at the target and then dispatching
+   unqualified is a failed publication, not a recoverable detail.
    Never choose `gh issue create` or a personal API call merely for convenience.
 2. For a proven-unavailable App publisher, use structured REST requests through
    the authenticated personal `gh` account. Do not query Projects while
