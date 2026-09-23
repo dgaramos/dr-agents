@@ -1,6 +1,6 @@
 ---
 name: ship-change
-description: Cody DR prepares and publishes a pull request for a completed implementation. Runs the final quality gate and opens the authorized PR.
+description: Cody DR prepares and publishes a pull request in the resolved target repository. Runs the final quality gate and opens the authorized PR.
 ---
 
 # Cody DR ship-change
@@ -13,15 +13,21 @@ referenced contracts, including
 `create-pr` App publisher without a second confirmation after an explicit
 issue-execution request. Personal fallback requires evidence of unavailability.
 
-Discover the target profile first with
-`core/profile-discovery/references/profile-discovery-contract.md`.
+Resolve the target first with
+`core/target-resolution/references/target-resolution-contract.md`,
+then discover its profile at the resolved checkout with
+`core/profile-discovery/references/profile-discovery-contract.md`. Push from
+that checkout with `git -C <checkout> push`.
 
 Follow `core/issue-workflow/references/contribution-guidance-contract.md` to
 apply PR-body and delivery-metadata guidance from `CONTRIBUTING.md`. A missing
 file is not a blocker; surface any material conflict with the profile before
 opening the PR.
 
-Discover `.github/workflows/publish-cody-pr.yml` and
-`.github/workflows/publish-cody-pr-metadata.yml` when no profile provides
-different publishers. Verify Cody DR's App result, or announce and verify
-the personal actor selected by the routing contract. Projects remain separate.
+Select `.github/workflows/publish-cody-pr.yml` and
+`.github/workflows/publish-cody-pr-metadata.yml` against the resolved target
+with `core/pr-review/scripts/select-publisher.sh` when no profile provides
+different publishers, and dispatch each one qualified with `--repo <target>`.
+Verify that the resulting PR belongs to the target and that its author is
+Cody DR's App, or announce and verify the personal actor selected by the
+routing contract. Projects remain separate.

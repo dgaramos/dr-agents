@@ -173,6 +173,107 @@ assert_parity plugins/claudio-dr/skills/author-issue/SKILL.md \
 assert_parity plugins/claudio-dr/agents/claudio-author.md \
               plugins/cody-dr/agents/cody-author.md
 
+echo "== dr-agents#335 ship flows adopt target resolution"
+
+# The three lifecycle contracts that mutate a repository. Each must resolve the
+# target before it loads a profile, run every git command inside the resolved
+# checkout, and refuse to mutate a checkout it did not expect.
+readonly ship_change='core/issue-workflow/references/ship-change-contract.md'
+readonly ship_issue='core/issue-workflow/references/ship-issue-contract.md'
+readonly start_issue='core/issue-workflow/references/start-issue-contract.md'
+
+for flow_contract in "$ship_change" "$ship_issue" "$start_issue"; do
+  assert_contains "$flow_contract" "$contract" \
+    "reference the target-resolution contract"
+  # RF-06: a mutating flow that runs bare `git` runs it in whatever directory
+  # the agent started in. The checkout has to be named at the call site.
+  assert_contains "$flow_contract" 'git -C <checkout>' \
+    "run git inside the resolved checkout"
+done
+
+# AC-08 / RF-11: the shipping and starting summaries lead with provenance.
+assert_rf11_lead "$ship_change" 'Ship'
+assert_rf11_lead "$ship_issue" 'Ship'
+assert_rf11_lead "$start_issue" 'Start'
+
+# AC-09: publisher selection happens against the resolved target...
+assert_contains "$ship_change" 'select-publisher.sh' \
+  "select the PR publisher against the resolved target"
+assert_contains "$ship_change" 'publish-<agent>-pr-metadata.yml' \
+  "select the metadata publisher against the resolved target"
+# ...and dispatch is repository-qualified. Selecting at the target and then
+# dispatching unqualified runs the publisher in the current checkout's
+# repository: that is the failed publication dr-agents#404 found, not a detail.
+assert_contains "$ship_change" '--repo <target>' \
+  "qualify the publisher dispatch with the resolved target"
+# The PR that comes back must belong to the target. Verifying the author only
+# proves who published, not where.
+assert_contains "$ship_change" "the resolved target" \
+  "verify the created PR's repository against the resolved target"
+assert_contains "$ship_change" 'Metadata publisher:' \
+  "report the metadata publisher separately"
+
+# AC-14: the clean-tree and expected-branch gate precedes the first mutation.
+# Without it a flow commits into whatever state the resolved checkout was left
+# in by unrelated work.
+for flow_contract in "$start_issue" "$ship_issue" "$ship_change"; do
+  assert_contains "$flow_contract" 'before any mutation' \
+    "gate mutation on a clean tree and the expected branch"
+  assert_contains "$flow_contract" 'Checkout state:' \
+    "report the verified checkout state"
+done
+
+for surface in plugins/claudio-dr/skills/start-issue/SKILL.md \
+               plugins/claudio-dr/skills/ship-change/SKILL.md \
+               plugins/claudio-dr/skills/ship-issue/SKILL.md \
+               plugins/claudio-dr/agents/claudio-executor.md; do
+  assert_contains "$surface" "$contract" "reference the target-resolution contract"
+done
+
+# The executor agents advertise where they work. "in the current repository" is
+# the claim this issue retires.
+assert_absent 'in the current repository' "'in the current repository'" \
+  plugins/claudio-dr/agents/claudio-executor.md \
+  plugins/cody-dr/agents/cody-executor.md
+
+assert_parity plugins/claudio-dr/skills/ship-change/SKILL.md \
+              plugins/cody-dr/skills/ship-change/SKILL.md
+assert_parity plugins/claudio-dr/skills/ship-issue/SKILL.md \
+              plugins/cody-dr/skills/ship-issue/SKILL.md
+assert_parity plugins/claudio-dr/agents/claudio-executor.md \
+              plugins/cody-dr/agents/cody-executor.md
+
+# start-issue cannot reach full parity by design: bin/check requires each
+# adapter to carry a *divergent* platform-scoping note (Claude Code worktree
+# mechanics vs Codex shell and file tools), and normalize_surface does not
+# neutralize it. So parity is asserted on the rest of the file. Everything
+# outside that one intentional paragraph must still mirror, which is what
+# catches the real divergence: the two adapters described profile discovery in
+# different words with different meanings.
+strip_platform_note() {
+  normalize_surface "$1" | awk '
+    /^\*\*Platform-specific detail/ { skipping = 1 }
+    skipping && NF == 0 { skipping = 0; next }
+    skipping { next }
+    { print }
+  '
+}
+
+assert_parity_outside_platform_note() {
+  local claudio="$1" cody="$2"
+  if [[ ! -f "$claudio" ]]; then fail "missing $claudio"; return; fi
+  if [[ ! -f "$cody" ]]; then fail "missing $cody"; return; fi
+  if diff -u <(strip_platform_note "$claudio") <(strip_platform_note "$cody") >/dev/null; then
+    pass "parity: $cody mirrors $claudio outside the platform-scoped paragraph"
+  else
+    fail "parity: $cody does not mirror $claudio outside the platform-scoped paragraph"
+    diff -u <(strip_platform_note "$claudio") <(strip_platform_note "$cody") >&2 || true
+  fi
+}
+
+assert_parity_outside_platform_note plugins/claudio-dr/skills/start-issue/SKILL.md \
+                                    plugins/cody-dr/skills/start-issue/SKILL.md
+
 echo "== no adopting surface tells the agent to use the current repository"
 
 shopt -s nullglob

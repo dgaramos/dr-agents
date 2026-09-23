@@ -14,5 +14,8 @@ Load the target project's profile before resolving the issue. Stop and emit a
 handoff block if any blocking dependency is unresolved or required profile
 values are missing.
 
-Discover it first with
-`core/profile-discovery/references/profile-discovery-contract.md`.
+Resolve the target first with
+`core/target-resolution/references/target-resolution-contract.md`,
+then discover its profile with
+`core/profile-discovery/references/profile-discovery-contract.md` at the
+resolved checkout. Run every git command inside that checkout.
