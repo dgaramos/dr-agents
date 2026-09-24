@@ -189,25 +189,144 @@ Both conditions the gate gates on were in fact present — the tree was dirty an
 the branch was not a working branch this flow had created — and either alone is
 sufficient to stop.
 
+## (e) A successful `--update` — ancestry from the branch head
+
+Authorized as a follow-up on the same branch. This is the path the #402 fix
+changed: before it, the second write parented from `base_sha`, which made every
+repeat write a non-fast-forward. It had never run against a real repository.
+
+`main` head before the run: `2d41f42251320aefe4496c8cedd78261822a7ba0`. The
+branch was confirmed absent (HTTP 404).
+
+```console
+$ remote-write.sh dgaramos/dr-specs main test/target-resolution-update-338 m1.json msg1.txt
+{"commit":"708f46ebc75f33bf16790dada56a7df5f2ef33b9","ref":"refs/heads/test/target-resolution-update-338","files":1}
+
+$ remote-write.sh dgaramos/dr-specs main test/target-resolution-update-338 m2.json msg2.txt --update
+{"commit":"c558fa834dacced889d4bf2cbbcdab5d9c4b1d4c","ref":"refs/heads/test/target-resolution-update-338","files":2}
+```
+
+Verified through the API, independently of both exit statuses:
+
+```console
+$ gh api repos/dgaramos/dr-specs/commits/708f46e --jq '[.parents[].sha]'
+["2d41f42251320aefe4496c8cedd78261822a7ba0"]          # first write parents from the base
+
+$ gh api repos/dgaramos/dr-specs/commits/c558fa8 --jq '{parents,files}'
+parents: ["708f46ebc75f33bf16790dada56a7df5f2ef33b9"]  # second parents from the BRANCH head
+files:   specs/dr-agents/target-resolution-update-probe/probe.md   (modified)
+         specs/dr-agents/target-resolution-update-probe/probe2.md  (added)
+
+$ gh api repos/dgaramos/dr-specs/git/ref/heads/test/target-resolution-update-338 --jq .object.sha
+c558fa834dacced889d4bf2cbbcdab5d9c4b1d4c
+
+$ gh api repos/dgaramos/dr-specs/compare/708f46e...c558fa8 --jq '{status,ahead_by,behind_by}'
+{"status":"ahead","ahead":1,"behind":0}
+```
+
+- The second commit's **sole parent is the first commit**, not the base. This is
+  exactly what #402 fixed.
+- `probe.md` is reported `modified`, not `added` — the second tree was built on
+  the *branch's* tree, so the earlier write's content was carried forward rather
+  than replaced.
+- `behind_by: 0` makes the move a fast-forward, which is what lets the script's
+  `{sha, force:false}` ref update (`remote-write.sh:208`) succeed at all. A
+  non-fast-forward would have been rejected by GitHub rather than silently
+  forced.
+- `main` was still at `2d41f42` afterwards.
+
+The ref was then deleted; a re-read returns HTTP 404.
+
+## (f) A full spec-authoring manifest
+
+`core/spec/references/spec-contract.md:161` requires the authoring manifest to
+carry the three trio files *and* the updated `index.md` in one commit. Scenario
+(c) exercised `remote-write.sh` as a generic writer; this exercises the
+composition rule that belongs to the caller.
+
+The manifest declared four paths, with `index.md` taken from the current `main`
+content and the new slug registered under `## Draft`:
+
+```console
+$ jq -r '.[].path' manifest.json
+specs/dr-agents/target-resolution-manifest-probe/requirements.md
+specs/dr-agents/target-resolution-manifest-probe/design.md
+specs/dr-agents/target-resolution-manifest-probe/tasks.md
+specs/dr-agents/index.md
+
+$ remote-write.sh dgaramos/dr-specs main test/target-resolution-manifest-338 manifest.json msg.txt
+{"commit":"3ed8324ccddab3f9a50afb85228e54545101f496","ref":"refs/heads/test/target-resolution-manifest-338","files":4}
+```
+
+Verified through the API:
+
+```console
+$ gh api repos/dgaramos/dr-specs/commits/3ed8324 --jq '{parents,files}'
+parents: ["2d41f42251320aefe4496c8cedd78261822a7ba0"]
+files:   specs/dr-agents/index.md                                         (modified)
+         specs/dr-agents/target-resolution-manifest-probe/design.md       (added)
+         specs/dr-agents/target-resolution-manifest-probe/requirements.md (added)
+         specs/dr-agents/target-resolution-manifest-probe/tasks.md        (added)
+```
+
+- All four declared paths are in the commit's tree.
+- `index.md` already existed, and it is reported **`modified`**, not `added` —
+  the existing file was updated in place rather than replaced by a fresh blob at
+  the same path.
+- The registration is present on the branch:
+  `- `target-resolution-manifest-probe` — draft (artefato de teste de dr-agents#338)`.
+- Nothing else in the repository was disturbed: the branch tree holds 94 blobs
+  against `main`'s 91 — exactly the three new trio files, with `index.md`
+  updated rather than duplicated.
+- `main` was still at `2d41f42` afterwards.
+
+The ref was then deleted; a re-read returns HTTP 404.
+
+## Cleanup of the follow-up scenarios
+
+Neither (e) nor (f) opened a pull request — both test manifest and ancestry
+behavior, which publication does not bear on, and (c) already recorded the
+publication path end to end. Both branches were deleted directly.
+
+```console
+$ gh api repos/dgaramos/dr-specs/git/refs/heads --jq '[.[].ref]|map(select(test("test/")))'
+[]
+$ gh api repos/dgaramos/dr-specs/git/ref/heads/main --jq .object.sha
+2d41f42251320aefe4496c8cedd78261822a7ba0
+```
+
+No test ref remains in the repository, `main` is unmoved from where it stood
+before any scenario ran, and the only pull request any of this created —
+dr-specs#32 — is closed and unmerged.
+
 ## Outcome
 
-No defect was found. Every claim the contract makes about `remote-write.sh` —
-ordering of the fail-closed pre-check, ancestry from the base head, exact
-manifest scope, byte-for-byte message, and refusal symmetry around `--update` —
-held on its first contact with a real repository and a real App.
+No defect was found in any of the six scenarios. Every claim the contract makes
+about `remote-write.sh` — ordering of the fail-closed pre-check, ancestry from
+the base head, ancestry from the branch head under `--update`, exact manifest
+scope, byte-for-byte message, and refusal symmetry around `--update` — held on
+its first contact with a real repository and a real App.
 
-Not covered by this run: the `--update` ancestry path (parenting from an
-existing branch head) was exercised only in its refusal direction, because the
-authorization for this dogfood covered a single commit. A successful `--update`
-against a real repository remains covered by `tests/test_remote_write.sh` alone.
+Both gaps this document originally recorded are now closed by live evidence:
 
-Also not covered: a full spec-authoring manifest. Scenario (c) wrote the test
-trio that dr-agents#338 task (c) specifies, exercising `remote-write.sh` as the
-generic writer it is — ancestry, manifest scope, exact message, refusal
-symmetry. It did not run the spec-authoring flow, whose manifest must carry the
-three trio files *and* the updated `index.md`
-(`core/spec/references/spec-contract.md:161`). That composition rule belongs to
-the caller, not to the writer, and no live run has exercised it. AC-13 as
-dr-agents#338 states it — the PR belongs to the specs repository and its
-verified author is the adapter bot — is satisfied independently of manifest
-composition, and both of its conjuncts are recorded above.
+- The **`--update` ancestry path** was left covered only by
+  `tests/test_remote_write.sh` and by its refusal direction. Scenario (e)
+  exercised it successfully against a real repository: the second commit's sole
+  parent is the first commit, the earlier file came through as `modified`
+  rather than re-added, and the ref move was a fast-forward
+  (`behind_by: 0`) accepted under `force: false`. This is the path that #402
+  fixed, and it now has real evidence rather than a fake `gh`.
+- The **full spec-authoring manifest** — three trio files plus the updated
+  `index.md` in one commit, per `core/spec/references/spec-contract.md:161` —
+  was never run live. Scenario (f) ran it: all four declared paths are in the
+  commit's tree, `index.md` is `modified` rather than `added`, and the blob
+  count moved from 91 to 94, so nothing outside the manifest was disturbed.
+
+AC-13 as dr-agents#338 states it — the PR belongs to the specs repository and
+its verified author is the adapter bot — is satisfied by scenario (c)
+independently of manifest composition, and both of its conjuncts are recorded
+there. Scenarios (e) and (f) extend the evidence beyond what #338 required;
+they do not change what AC-13 asserts.
+
+Nothing in this run produced a code change. Everything recorded here is
+evidence about behavior that already shipped.
