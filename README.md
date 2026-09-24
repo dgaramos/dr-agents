@@ -97,6 +97,39 @@ contributor.
 
 ## Installation
 
+There are two ways to get the agents, and they cover different ground. Working
+**inside this repository** needs no install at all. Using the agents **in other
+repositories** needs `bin/install --global` on that machine.
+
+### Working inside this repository (no install)
+
+This repository tracks its own agent surface: `.claude/agents/` and
+`.claude/skills/` are symlinks into `plugins/`, committed to git. Any checkout
+loads the full set with nothing installed and no setup step — a laptop, a
+fresh clone, or a cloud session that clones from GitHub.
+
+```bash
+git clone https://github.com/dgaramos/dr-agents.git
+cd dr-agents
+# Claudio DR agents are already available: @claudio-reviewer, @claudio-executor, ...
+```
+
+Because they are symlinks rather than copies, they never go stale: they resolve
+to the catalog sources in the same checkout. `bin/check` derives the expected
+set from `plugins/*/agents/` and `plugins/claudio-dr/skills/` and fails if an
+agent or skill is missing, or if a symlink has been replaced by a copy — so
+adding an agent to the catalog and forgetting the link is a gate failure, not a
+silent gap.
+
+Agent files come from both adapters, since an agent is a reviewer persona
+either host can load. Skills come from `claudio-dr` only: a Codex skill is not
+something Claude Code runs. Cody DR loads through Codex's own plugin mechanism
+from `~/.codex/`, which is machine-local, so the Cody side does need an install
+on the machine you are working from.
+
+This is the path that works away from your own machine. What it does **not**
+give you is the agents in other repositories — for that, install globally.
+
 ### Bootstrap (first-time setup)
 
 Clone the repo and run the installer directly from the catalog:
