@@ -4,6 +4,30 @@ All notable changes to this catalog are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.41] - 2026-09-24
+
+One adapter change and the release that carries it. Reinstall to pick up the
+change-discipline contract that `0.1.40` bundled without a version signal.
+
+### Changed
+
+- Both adapters' `implement-issue` and `handle-pr-findings` skills now follow
+  `core/issue-workflow/references/change-discipline-contract.md` by path, so
+  Claudio DR and Cody DR constrain the shape of a diff identically. The rules
+  stay in the core contract; the adapters carry only the reference.
+- `bin/check` gained a parity loop over both skill names and both adapter
+  prefixes. Dropping the reference from either adapter now fails with
+  `parity: <skill> does not reference change-discipline-contract.md`.
+- Stub surface bumped to `0.1.41`. Reinstall consumer stubs.
+
+### Fixed
+
+- `0.1.40` shipped the new change-discipline contract into both installable
+  plugin trees while leaving both manifests and marketplace entries at
+  `0.1.40`, so installed copies could differ in content under an unchanged
+  version. Both plugins, both marketplace entries, and every publisher stub
+  marker now carry `0.1.41`.
+
 ## [0.1.40] - 2026-09-24
 
 Two epics closed in this range: #313 (authorized review publication) and #314

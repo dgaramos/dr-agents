@@ -18,6 +18,10 @@ cryptographic signature; preserve the user's Git author and signing settings.
 Discover the target profile first with
 `core/profile-discovery/references/profile-discovery-contract.md`.
 
+Follow `core/issue-workflow/references/change-discipline-contract.md` when
+editing the target repository. Keep every changed line traceable to the
+request, and report `Observed, not changed:` items instead of fixing them.
+
 Load `core/findings-handling/references/findings-contract.md` before acting.
 It defines current-head verification, triage classifications, fix requirements,
 out-of-scope deferral via the issue-authoring contract, reply and resolution
