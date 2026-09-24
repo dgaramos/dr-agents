@@ -1563,4 +1563,47 @@ AGENT_WORKFLOWS_DIR="$(pwd)" bin/drift
 if [[ "${_IN_GIT_REPO}" == "1" ]]; then
   git diff --check
 fi
+# The repository's own .claude/ is how a checkout of this catalog works on
+# itself: symlinks into plugins/, tracked in git, so any clone -- a laptop, a
+# cloud session, a phone -- gets the agent surface with nothing installed.
+#
+# It was hand-curated, and by dr-agents#418 it had drifted to 6 of 14 agents
+# and 8 of 15 skills: every agent added since 2026-09-10 was simply missing,
+# and nothing failed. Derive both sets from the tree instead. Agents come from
+# BOTH adapters, because an agent file is a reviewer persona that either host
+# can load; skills come from claudio-dr only, because a Codex skill is not
+# something Claude Code runs.
+repo_surface_failed=0
+while IFS= read -r catalog_agent; do
+  agent_name="$(basename "$catalog_agent")"
+  linked_agent=".claude/agents/${agent_name}"
+  if [[ ! -e "$linked_agent" ]]; then
+    echo "repo surface: $catalog_agent has no .claude/agents/$agent_name" >&2
+    repo_surface_failed=1
+    continue
+  fi
+  if [[ ! -L "$linked_agent" ]]; then
+    echo "repo surface: $linked_agent must be a symlink into plugins/, not a copy" >&2
+    repo_surface_failed=1
+  fi
+done < <(ls plugins/claudio-dr/agents/*.md plugins/cody-dr/agents/*.md 2>/dev/null || true)
+
+while IFS= read -r catalog_skill; do
+  skill_name="$(basename "$catalog_skill")"
+  linked_skill=".claude/skills/${skill_name}"
+  if [[ ! -e "$linked_skill" ]]; then
+    echo "repo surface: plugins/claudio-dr/skills/$skill_name has no .claude/skills/$skill_name" >&2
+    repo_surface_failed=1
+    continue
+  fi
+  if [[ ! -L "$linked_skill" ]]; then
+    echo "repo surface: $linked_skill must be a symlink into plugins/, not a copy" >&2
+    repo_surface_failed=1
+  fi
+done < <(find plugins/claudio-dr/skills -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)
+
+if [[ "$repo_surface_failed" == "1" ]]; then
+  exit 1
+fi
+
 echo "catalog quality check: ok"
