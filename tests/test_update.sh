@@ -9,6 +9,7 @@ readonly fake_home="$tmp/home"
 readonly fake_repo="$tmp/repo"
 readonly codex_dir="$tmp/home/.codex"
 readonly fake_git="$tmp/bin/git"
+readonly codex_call_log="$tmp/codex.log"
 
 mkdir -p "$fake_home" "$fake_repo" "$tmp/bin"
 
@@ -23,11 +24,14 @@ fi
 exec /usr/bin/git "$@"
 EOF
 chmod +x "$fake_git"
+cp "$repository_root/tests/helpers/fake-codex.sh" "$tmp/bin/codex"
+chmod +x "$tmp/bin/codex"
 
 run_update() {
   GIT_CALL_LOG="$tmp/git.log" \
   HOME="$fake_home" \
   CODEX_CONFIG_DIR="$codex_dir" \
+  CODEX_CALL_LOG="$codex_call_log" \
   PATH="$tmp/bin:$PATH" \
     bash "$repository_root/bin/update" "$@" 2>&1
 }
@@ -43,7 +47,9 @@ cody_ver="$(jq -r '.version' "$repository_root/plugins/cody-dr/.codex-plugin/plu
 
 grep -qF "pull --ff-only" "$tmp/git.log" || { echo "FAIL: git pull not called" >&2; exit 1; }
 [[ -f "$fake_home/.claude/.claude-plugin/plugin.json" ]] || { echo "FAIL: claudio-dr not installed" >&2; exit 1; }
-[[ -f "$codex_dir/plugins/cache/cody-dr/${cody_ver}/.codex-plugin/plugin.json" ]] || { echo "FAIL: cody-dr not installed" >&2; exit 1; }
+[[ -f "$codex_dir/plugins/cache/dr-agents/cody-dr/${cody_ver}/.codex-plugin/plugin.json" ]] || { echo "FAIL: cody-dr not installed" >&2; exit 1; }
+[[ ! -e "$codex_dir/plugins/cache/cody-dr" ]] || { echo "FAIL: update created the legacy direct Cody cache" >&2; exit 1; }
+grep -qF "plugin add cody-dr@dr-agents" "$codex_call_log" || { echo "FAIL: update did not refresh cody-dr@dr-agents" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # --repo: pulls catalog then installs repo-local

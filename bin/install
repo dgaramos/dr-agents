@@ -3,7 +3,7 @@
 #
 # Modes:
 #   (no args)             check workflow presence and drift in CWD .github/workflows/
-#   --global              install claudio-dr to ~/.claude/ and cody-dr to global Codex config
+#   --global              install claudio-dr to ~/.claude/ and register cody-dr through Codex
 #   --repo [--profile N]  install to .claude/ in CWD; optionally apply named profile overrides
 #   --status              report what is currently installed globally and per-repo in CWD
 #   --workflows           install managed workflow stubs to CWD .github/workflows/
@@ -38,8 +38,8 @@ Usage: bin/install [--force]
                     core/ file vendored at the repository root, by name and
                     state ('identical'/'diverged'), and exits non-zero: nothing
                     installs or runs such copies. No files are written.
-  --global          Install claudio-dr plugin to ~/.claude/ and cody-dr plugin
-                    to the global Codex config directory.
+  --global          Install claudio-dr plugin to ~/.claude/ and install cody-dr
+                    from this catalog's dr-agents Codex marketplace.
   --repo            Install claudio-dr plugin to .clone/ in the current repo.
                     Combine with --profile <name> to apply profile-specific
                     overrides from profiles/<name>.md.
@@ -610,12 +610,8 @@ mode_global() {
   local claudio_ver
   claudio_ver="$(claudio_version)"
 
-  local cody_src="${REPO_DIR}/plugins/cody-dr"
   local cody_ver
   cody_ver="$(cody_version)"
-  # Codex stores plugins under plugins/cache/<name>/<version>/ inside its config dir.
-  local codex_config="${CODEX_CONFIG_DIR:-${HOME}/.codex}"
-  local cody_dest="${codex_config}/plugins/cache/cody-dr/${cody_ver}"
 
   local agents_dest="${HOME}/.local/bin/agents"
 
@@ -634,10 +630,15 @@ mode_global() {
 
   echo ""
   echo "Installing cody-dr v${cody_ver}"
-  echo "  from: ${cody_src}"
-  echo "  to  : ${cody_dest}"
+  echo "  marketplace: dr-agents (${REPO_DIR})"
+  echo "  plugin     : cody-dr@dr-agents"
   echo ""
-  install_plugin_dir "${cody_src}" "${cody_dest}" "${cody_ver}" || conflicts=$((conflicts + 1))
+  if ! command -v codex >/dev/null 2>&1; then
+    echo "codex CLI is required to install cody-dr through the dr-agents marketplace" >&2
+    exit 1
+  fi
+  codex plugin marketplace add "${REPO_DIR}"
+  codex plugin add cody-dr@dr-agents
 
   echo ""
   echo "Installing agents CLI"
@@ -725,7 +726,7 @@ mode_status() {
 
   local codex_config="${CODEX_CONFIG_DIR:-${HOME}/.codex}"
   local global_claudio_manifest="${HOME}/.claude/.claude-plugin/plugin.json"
-  local global_cody_manifest="${codex_config}/plugins/cache/cody-dr/${catalog_cody_ver}/.codex-plugin/plugin.json"
+  local global_cody_manifest="${codex_config}/plugins/cache/dr-agents/cody-dr/${catalog_cody_ver}/.codex-plugin/plugin.json"
   local local_claudio_manifest="${repo_root}/.claude/.claude-plugin/plugin.json"
 
   echo "dr-agents install status"
@@ -744,7 +745,7 @@ mode_status() {
 
   echo "Global:"
   echo "  claudio-dr  $(installed_version "${global_claudio_manifest}")  (${HOME}/.claude/)"
-  echo "  cody-dr     $(installed_version "${global_cody_manifest}")  (${codex_config}/plugins/cache/cody-dr/${catalog_cody_ver}/)"
+  echo "  cody-dr     $(installed_version "${global_cody_manifest}")  (${codex_config}/plugins/cache/dr-agents/cody-dr/${catalog_cody_ver}/)"
   echo "  agents      ${agents_status}  (${agents_dest})"
   echo ""
   echo "Repo (${repo_root}):"

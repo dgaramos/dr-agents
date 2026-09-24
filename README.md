@@ -152,8 +152,13 @@ git clone https://github.com/dgaramos/dr-agents.git ~/dr-agents
 `bin/install --global` installs:
 
 - claudio-dr plugin to `~/.claude/`
-- cody-dr plugin to `~/.codex/`
+- cody-dr as `cody-dr@dr-agents` through the Codex marketplace
 - `agents` CLI to `~/.local/bin/agents`
+
+The installer delegates Cody installation to `codex plugin`; it does not copy
+a second plugin tree into `~/.codex/plugins/cache/cody-dr/`. Re-running
+`agents update --global` refreshes the same marketplace registration Codex
+loads.
 
 After this, the `agents` command is available system-wide — no direnv or
 catalog directory in `PATH` required. Ensure `~/.local/bin` is in your `PATH`
