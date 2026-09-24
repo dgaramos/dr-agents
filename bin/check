@@ -234,12 +234,74 @@ else
   echo "warning: not a git repository; git-dependent checks will be skipped" >&2
 fi
 
+# dr-agents#330 follow-up: the derived pair check runs BEFORE required_paths.
+#
+# required_paths is hand-maintained and enforced early, so for any surface
+# already on that list a missing Cody counterpart was reported as a bare
+# "required path missing" and the run stopped there -- the derived guard's own
+# missing-counterpart branch could never speak. Both failures are real, but only
+# one of them explains WHY the file is required. Deriving the adopting set from
+# content and checking it first means the precise message is never shadowed by
+# the coarse one. The list still runs, and still catches a pair deleted from
+# both sides, which no derivation can see.
+#
+# dr-agents#410 follow-up: the set is the UNION of both adapter trees. Deriving
+# it from Claudio alone made Claudio the sole source of truth for a set that is
+# supposed to be derived: a new plugins/cody-dr/ surface citing the contract
+# with no Claudio counterpart entered neither the existence check nor the
+# normalized diff, so the one-sided addition this guard exists to stop passed
+# unnoticed in one of the two directions. Each side is mapped to its
+# counterpart and the pairs are deduplicated, so a file paired in both trees is
+# still checked exactly once.
+#
+# Emits one `<claudio-relative-path>\t<cody-relative-path>` pair per line,
+# relative to each adapter root. Each grep carries its own `|| true`: grep exits
+# 1 on no match, and under `set -euo pipefail` that would kill the run before
+# either consumer reached its failure branch.
+adopting_surface_pairs() {
+  {
+    grep -lF 'target-resolution' \
+      plugins/claudio-dr/skills/*/SKILL.md plugins/claudio-dr/agents/*.md 2>/dev/null \
+      | while IFS= read -r surface; do
+          relative="${surface#plugins/claudio-dr/}"
+          printf '%s\t%s\n' "$relative" "${relative/claudio-/cody-}"
+        done || true
+    grep -lF 'target-resolution' \
+      plugins/cody-dr/skills/*/SKILL.md plugins/cody-dr/agents/*.md 2>/dev/null \
+      | while IFS= read -r surface; do
+          relative="${surface#plugins/cody-dr/}"
+          printf '%s\t%s\n' "${relative/cody-/claudio-}" "$relative"
+        done || true
+  } | sort -u
+}
+
+startup_failed=0
+while IFS=$'\t' read -r claudio_relative cody_relative; do
+  [[ -n "$claudio_relative" ]] || continue
+  claudio_surface="plugins/claudio-dr/${claudio_relative}"
+  cody_surface="plugins/cody-dr/${cody_relative}"
+  if [[ ! -f "$cody_surface" ]]; then
+    echo "parity: $claudio_surface adopts target resolution but $cody_surface does not exist" >&2
+    startup_failed=1
+  fi
+  if [[ ! -f "$claudio_surface" ]]; then
+    echo "parity: $cody_surface adopts target resolution but $claudio_surface does not exist" >&2
+    startup_failed=1
+  fi
+done < <(adopting_surface_pairs)
+
+# Report every missing path, not merely the first: one absent file used to hide
+# every other absent file behind it.
 for path in "${required_paths[@]}"; do
   if ! test -f "$path"; then
     echo "required path missing: $path" >&2
-    exit 1
+    startup_failed=1
   fi
 done
+
+if [[ "$startup_failed" == "1" ]]; then
+  exit 1
+fi
 
 # A dangling symlink makes this repository unusable as a GitHub Actions action
 # repository: the runner stages the whole repo before resolving the action and
@@ -958,7 +1020,7 @@ for skill in "${adapter_review_skills[@]}"; do
   done
 done
 
-# Reviewer surfaces must be identical once reviewer identity and the two
+# Adapter surfaces must be identical once reviewer identity and the two
 # platform mechanics that legitimately differ are neutralized. Derived from the
 # tree rather than enumerated, so a third adapter is covered on arrival.
 #
@@ -969,13 +1031,28 @@ done
 # else, so any other divergence -- wording, ordering, a contract reference, a
 # guardrail -- fails here. Widening it is a decision to be made deliberately,
 # not a quiet edit.
-normalize_reviewer_surface() {
+normalize_surface() {
   sed -e 's/Claudio/REVIEWER/g' -e 's/claudio/reviewer/g' \
       -e 's/Cody/REVIEWER/g' -e 's/cody/reviewer/g' \
+      -e 's/Claude App/REVIEWER App/g' -e 's/Codex App/REVIEWER App/g' \
       -e 's|${CLAUDE_PLUGIN_ROOT}|<plugin-root>|g' \
       -e 's|<installed-plugin-root>|<plugin-root>|g' \
       -e '1,/^---$/{/^name: /d;}' "$1"
 }
+
+# start-issue's platform-scoped paragraph is required to DIVERGE between
+# adapters (see the platform-scoping block below), and normalize_surface
+# deliberately neutralizes nothing but identity. Stripping that one paragraph is
+# what lets the rest of the file be held to full parity.
+strip_platform_note() {
+  normalize_surface "$1" | awk '
+    /^\*\*Platform-specific detail/ { skipping = 1 }
+    skipping && NF == 0 { skipping = 0; next }
+    skipping { next }
+    { print }
+  '
+}
+
 
 shopt -s nullglob
 readonly reviewer_surface_globs=(
@@ -989,8 +1066,8 @@ for surface_glob in "${reviewer_surface_globs[@]}"; do
       reference="$surface"
       continue
     fi
-    if ! diff -u <(normalize_reviewer_surface "$reference") \
-                 <(normalize_reviewer_surface "$surface") >&2; then
+    if ! diff -u <(normalize_surface "$reference") \
+                 <(normalize_surface "$surface") >&2; then
       echo "parity: $surface does not mirror $reference once identity is normalized" >&2
       exit 1
     fi
@@ -1000,6 +1077,127 @@ for surface_glob in "${reviewer_surface_globs[@]}"; do
     exit 1
   fi
 done
+
+# --- dr-agents#330: derived guards for target-resolution adoption -------------
+#
+# Every set below is derived from the tree, never enumerated. A hand-kept list
+# is correct until the day something is added; these fail on arrival instead.
+#
+# All four guards report and exit. None may die under `set -euo pipefail`
+# before reaching its own failure branch: a guard that aborts early looks
+# exactly like a guard that passed. This is the shape of the bug fixed at
+# tests/test_target_adoption.sh:42, and it is not to be reintroduced here.
+
+# Adopter parity. The set is every surface in EITHER adapter whose CONTENT
+# cites the target-resolution contract -- content, not filename, so a surface
+# that adopts the contract is covered the moment it does, and either adapter can
+# be the one that introduces it. Each requires its counterpart at the same
+# relative path, with the agent basename remapped.
+adopting_parity_failed=0
+while IFS=$'\t' read -r relative_surface cody_relative; do
+  [[ -n "$relative_surface" ]] || continue
+  claudio_surface="plugins/claudio-dr/${relative_surface}"
+  cody_surface="plugins/cody-dr/${cody_relative}"
+  if [[ ! -f "$cody_surface" || ! -f "$claudio_surface" ]]; then
+    # Already reported by name at startup, which exits; this only keeps the
+    # loop from dying on a missing operand if that guard is ever relaxed.
+    adopting_parity_failed=1
+    continue
+  fi
+  # start-issue cannot reach full parity by design: the block above REQUIRES
+  # each adapter to carry a divergent platform-scoping note, and normalize_surface
+  # deliberately does not neutralize it. Everything outside that one intentional
+  # paragraph must still mirror.
+  if [[ "$relative_surface" == "skills/start-issue/SKILL.md" ]]; then
+    if ! diff -u <(strip_platform_note "$claudio_surface") \
+                 <(strip_platform_note "$cody_surface") >&2; then
+      echo "parity: $cody_surface does not mirror $claudio_surface outside the platform-scoped paragraph" >&2
+      adopting_parity_failed=1
+    fi
+    continue
+  fi
+  if ! diff -u <(normalize_surface "$claudio_surface") \
+               <(normalize_surface "$cody_surface") >&2; then
+    echo "parity: $cody_surface does not mirror $claudio_surface once identity is normalized" >&2
+    adopting_parity_failed=1
+  fi
+done < <(adopting_surface_pairs)
+if [[ "$adopting_parity_failed" == "1" ]]; then
+  exit 1
+fi
+
+# No adopting surface may send the agent to the current repository for its
+# profile: the target is resolved first, and the profile is discovered at the
+# resolved checkout. The vendored bundles under plugins/*/core/ are excluded by
+# construction -- they are siblings of skills/ and agents/, not nested inside
+# them -- so this filter is defensive rather than load-bearing.
+cwd_sentence_failed=0
+while IFS= read -r offender; do
+  [[ -n "$offender" ]] || continue
+  case "$offender" in
+    plugins/*/core/*) continue ;;
+  esac
+  echo "cwd: ${offender%%:*}:$(cut -d: -f2 <<<"$offender") tells the agent to take the profile from the current repository" >&2
+  cwd_sentence_failed=1
+done < <(grep -rn 'profile from the current repository' \
+  plugins/*/skills plugins/*/agents 2>/dev/null || true)
+if [[ "$cwd_sentence_failed" == "1" ]]; then
+  exit 1
+fi
+
+# RF-11: an adopting summary BEGINS with the target and profile facts. This is
+# an order, not a presence: a summary that buries provenance under a verdict is
+# exactly the shape RF-11 forbids, and a window-based presence check passes it.
+#
+# The file set is derived -- every core contract that cites target-resolution --
+# so a contract is covered on the commit that makes it an adopter. Headings are
+# only recognised inside a fenced block of three OR MORE backticks, because
+# review-contract.md nests a ```md sample inside a ````md fence.
+summary_lead_failed=0
+while IFS= read -r contract; do
+  [[ -n "$contract" ]] || continue
+  while IFS= read -r offense; do
+    [[ -n "$offense" ]] || continue
+    echo "summary: $contract $offense" >&2
+    summary_lead_failed=1
+  done < <(awk '
+    /^`{3,}/ { fence = !fence; next }
+    !fence { next }
+    /^## [A-Z][A-Za-z -]*— / {
+      heading = $0
+      sub(/ — .*/, "", heading)
+      sub(/^## /, "", heading)
+      first = ""; second = ""; count = 0
+      for (i = NR + 1; (getline line) > 0; i++) {
+        if (line ~ /^\*\*/) {
+          count++
+          if (count == 1) first = line
+          else if (count == 2) { second = line; break }
+          continue
+        }
+        if (line ~ /^[[:space:]]*$/) continue
+        break
+      }
+      if (first !~ /^\*\*Target:\*\*/)
+        printf "'\''## %s — '\'' does not begin with **Target:**; first field is: %s\n", heading, (first == "" ? "<none>" : first)
+      else if (second !~ /^\*\*Profile:\*\*/)
+        printf "'\''## %s — '\'' does not carry **Profile:** as its second field; got: %s\n", heading, (second == "" ? "<none>" : second)
+    }
+  ' "$contract")
+done < <(grep -rlF 'target-resolution' --include='*.md' core 2>/dev/null || true)
+if [[ "$summary_lead_failed" == "1" ]]; then
+  exit 1
+fi
+
+# The target-resolution contract is portable core. It must never name a
+# reviewer, an account, a concrete publisher workflow, or a local path. This
+# passes today, so it is a regression lock rather than a fix -- which is the
+# point: it is the edit after this one that it exists to catch.
+while IFS= read -r offender; do
+  [[ -n "$offender" ]] || continue
+  echo "portability: ${offender%%:*}:$(cut -d: -f2 <<<"$offender") names a reviewer, account, publisher, or local path in portable core" >&2
+  exit 1
+done < <(grep -rniE 'claudio|cody|dgaramos|publish-[a-z]+-|/Users/|/home/' core/target-resolution 2>/dev/null || true)
 
 # Published guidance must describe the publication path that exists. A
 # `--field manifest=` dispatch and a `gh pr review` fallback were both
