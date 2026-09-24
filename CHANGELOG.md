@@ -4,6 +4,81 @@ All notable changes to this catalog are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.40] - 2026-09-24
+
+Two epics closed in this range: #313 (authorized review publication) and #314
+(target resolution). Both are user-visible in the adapters, so reinstall after
+upgrading.
+
+### Added
+
+- `core/target-resolution/`: a portable contract, `resolve-target.sh`, and
+  `remote-write.sh`. Every flow now resolves *which repository* it is acting on
+  before discovering a profile — an explicit target (PR or issue URL,
+  `owner/repo`, or the resolved `SPECS_REPOSITORY`) wins over the current
+  directory, checkouts are matched by normalized `origin` and never by directory
+  name, and a flow with no checkout declares `remote-only` instead of guessing.
+- `remote-write.sh` creates or updates a branch through the git-data API with no
+  checkout at all: blobs, tree, commit, ref. Optional `--author`/`--committer`
+  make authorship chosen rather than inherited from whichever account is
+  authenticated.
+- Four portable review-publication scripts — load threads, validate the
+  manifest, dispatch, verify — so an authorized review publishes in one pass and
+  is checked afterwards rather than assumed.
+- `bin/check` gained four guards derived from the tree, not from a list: adopter
+  parity between the two adapters, a guard against any surface discovering the
+  profile from the current directory, the RF-11 summary-order rule, and a
+  portability grep over `core/target-resolution`.
+- `docs/dogfood-target-resolution.md` records a live cross-repository run
+  against the specs repository: checkout-mode resolution, `remote-only` reads,
+  an authorized remote write published through the target's own App, a
+  dirty-tree handoff, a successful `--update` parenting from the branch head,
+  and a full spec-authoring manifest.
+
+### Changed
+
+- Every adopting summary now leads with `**Target:**` then `**Profile:**`
+  (RF-11), including the review, re-review, issue-draft, ship, start and spec
+  blocks. `verify-review-surface.sh` enforces the order rather than the previous
+  verdict-first shape.
+- `ship-change` opens the pull request in the *resolved* target through that
+  repository's App publisher, and gained a `remote-only` entry point that ships
+  no commits of its own.
+- Mutating flows stop before their first write when the resolved checkout is
+  dirty or on an unexpected branch, reporting `Checkout state:` and handing back.
+- The spec flow proposes a canonical path when it is not authorized to write,
+  and writes the trio plus the project `index.md` when it is.
+- Review summaries are scannable: verdict and next step first, size-gated, with
+  a defined thread-reply anatomy and an implementer role marker.
+- Stub surface bumped to `0.1.40`. Reinstall consumer stubs after the
+  `workflows-v1` promotion.
+
+### Fixed
+
+- `remote-write.sh --update` parented every repeat write from the base branch,
+  making each one a sibling of the branch head and a guaranteed
+  non-fast-forward rejection. It now parents from the existing head and builds
+  on that tree.
+- The same script's branch pre-check treated *every* failed ref lookup as "the
+  branch is absent", so an auth, rate-limit or network error fell through to the
+  create path and uploaded objects before discovering the ref existed. Only a
+  404 now means absent; anything else refuses to write.
+- The publisher PR actor is reported and enforced: an agent delivery branch
+  whose pull request was opened by a personal account is caught rather than
+  passing unnoticed.
+- `bin/install` derives its managed stub set from the catalog instead of a
+  hand-kept list, and rejects mutually exclusive mode flags.
+
+### Known gaps
+
+- The adapter Apps can publish reviews and thread replies but cannot call
+  `resolveReviewThread` (`Resource not accessible by integration`), so
+  resolutions — named in #313's goal alongside findings and replies — still
+  require a personal account. This is a publisher permission, not catalog code.
+- The catalog `v0.1.x` tag line lapsed after `v0.1.15`; the `0.1.33` entry above
+  was never tagged. This release resumes it. `workflows-v1` is a separate,
+  deliberately moving tag and was unaffected.
+
 ## [0.1.33] - 2026-09-11
 
 ### Added
