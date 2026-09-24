@@ -244,21 +244,51 @@ fi
 # content and checking it first means the precise message is never shadowed by
 # the coarse one. The list still runs, and still catches a pair deleted from
 # both sides, which no derivation can see.
-adopting_claudio_surfaces() {
-  grep -lF 'target-resolution' \
-    plugins/claudio-dr/skills/*/SKILL.md plugins/claudio-dr/agents/*.md 2>/dev/null || true
+#
+# dr-agents#410 follow-up: the set is the UNION of both adapter trees. Deriving
+# it from Claudio alone made Claudio the sole source of truth for a set that is
+# supposed to be derived: a new plugins/cody-dr/ surface citing the contract
+# with no Claudio counterpart entered neither the existence check nor the
+# normalized diff, so the one-sided addition this guard exists to stop passed
+# unnoticed in one of the two directions. Each side is mapped to its
+# counterpart and the pairs are deduplicated, so a file paired in both trees is
+# still checked exactly once.
+#
+# Emits one `<claudio-relative-path>\t<cody-relative-path>` pair per line,
+# relative to each adapter root. Each grep carries its own `|| true`: grep exits
+# 1 on no match, and under `set -euo pipefail` that would kill the run before
+# either consumer reached its failure branch.
+adopting_surface_pairs() {
+  {
+    grep -lF 'target-resolution' \
+      plugins/claudio-dr/skills/*/SKILL.md plugins/claudio-dr/agents/*.md 2>/dev/null \
+      | while IFS= read -r surface; do
+          relative="${surface#plugins/claudio-dr/}"
+          printf '%s\t%s\n' "$relative" "${relative/claudio-/cody-}"
+        done || true
+    grep -lF 'target-resolution' \
+      plugins/cody-dr/skills/*/SKILL.md plugins/cody-dr/agents/*.md 2>/dev/null \
+      | while IFS= read -r surface; do
+          relative="${surface#plugins/cody-dr/}"
+          printf '%s\t%s\n' "${relative/cody-/claudio-}" "$relative"
+        done || true
+  } | sort -u
 }
 
 startup_failed=0
-while IFS= read -r claudio_surface; do
-  [[ -n "$claudio_surface" ]] || continue
-  relative_surface="${claudio_surface#plugins/claudio-dr/}"
-  cody_surface="plugins/cody-dr/${relative_surface/claudio-/cody-}"
+while IFS=$'\t' read -r claudio_relative cody_relative; do
+  [[ -n "$claudio_relative" ]] || continue
+  claudio_surface="plugins/claudio-dr/${claudio_relative}"
+  cody_surface="plugins/cody-dr/${cody_relative}"
   if [[ ! -f "$cody_surface" ]]; then
     echo "parity: $claudio_surface adopts target resolution but $cody_surface does not exist" >&2
     startup_failed=1
   fi
-done < <(adopting_claudio_surfaces)
+  if [[ ! -f "$claudio_surface" ]]; then
+    echo "parity: $cody_surface adopts target resolution but $claudio_surface does not exist" >&2
+    startup_failed=1
+  fi
+done < <(adopting_surface_pairs)
 
 # Report every missing path, not merely the first: one absent file used to hide
 # every other absent file behind it.
@@ -1058,17 +1088,19 @@ done
 # exactly like a guard that passed. This is the shape of the bug fixed at
 # tests/test_target_adoption.sh:42, and it is not to be reintroduced here.
 
-# Adopter parity. The set is every Claudio surface whose CONTENT cites the
-# target-resolution contract -- content, not filename, so a surface that adopts
-# the contract is covered the moment it does. Each requires its Cody
-# counterpart at the same relative path, with the agent basename remapped.
+# Adopter parity. The set is every surface in EITHER adapter whose CONTENT
+# cites the target-resolution contract -- content, not filename, so a surface
+# that adopts the contract is covered the moment it does, and either adapter can
+# be the one that introduces it. Each requires its counterpart at the same
+# relative path, with the agent basename remapped.
 adopting_parity_failed=0
-while IFS= read -r claudio_surface; do
-  [[ -n "$claudio_surface" ]] || continue
-  relative_surface="${claudio_surface#plugins/claudio-dr/}"
-  cody_surface="plugins/cody-dr/${relative_surface/claudio-/cody-}"
-  if [[ ! -f "$cody_surface" ]]; then
-    echo "parity: $claudio_surface adopts target resolution but $cody_surface does not exist" >&2
+while IFS=$'\t' read -r relative_surface cody_relative; do
+  [[ -n "$relative_surface" ]] || continue
+  claudio_surface="plugins/claudio-dr/${relative_surface}"
+  cody_surface="plugins/cody-dr/${cody_relative}"
+  if [[ ! -f "$cody_surface" || ! -f "$claudio_surface" ]]; then
+    # Already reported by name at startup, which exits; this only keeps the
+    # loop from dying on a missing operand if that guard is ever relaxed.
     adopting_parity_failed=1
     continue
   fi
@@ -1089,7 +1121,7 @@ while IFS= read -r claudio_surface; do
     echo "parity: $cody_surface does not mirror $claudio_surface once identity is normalized" >&2
     adopting_parity_failed=1
   fi
-done < <(adopting_claudio_surfaces)
+done < <(adopting_surface_pairs)
 if [[ "$adopting_parity_failed" == "1" ]]; then
   exit 1
 fi
