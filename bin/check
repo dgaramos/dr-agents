@@ -130,6 +130,7 @@ readonly required_paths=(
   "core/issue-workflow/scripts/apply-pr-metadata.sh"
   "core/issue-workflow/references/execute-issue-contract.md"
   "core/issue-workflow/references/contribution-guidance-contract.md"
+  "core/issue-workflow/references/change-discipline-contract.md"
   "core/issue-workflow/skills/start-issue/SKILL.md"
   "core/issue-workflow/skills/implement-issue/SKILL.md"
   "core/issue-workflow/skills/plan-implementation/SKILL.md"
@@ -151,6 +152,7 @@ readonly required_paths=(
   "examples/generic-test-first-planning.md"
   "examples/generic-pr-shipping.md"
   "examples/generic-contribution-guidance.md"
+  "examples/generic-change-discipline.md"
   ".codex-plugin/marketplace.json"
   "plugins/cody-dr/.codex-plugin/plugin.json"
   "plugins/cody-dr/skills/review-pr/SKILL.md"
@@ -1432,6 +1434,34 @@ for contract in \
     exit 1
   fi
 done
+
+# Change discipline is a portable rule about the SHAPE of a diff, so its rules
+# live in one core contract and every consumer points at it. The phrases below
+# are the load-bearing ones: each names a rule that a reviewer or an implementer
+# acts on, and a contract that has lost one has lost the rule, not just a
+# sentence. They are asserted individually rather than as a single grep so the
+# failure names which rule went missing.
+readonly change_discipline_contract="core/issue-workflow/references/change-discipline-contract.md"
+for required_text in \
+  'Observed, not changed:' \
+  'traceable to the request' \
+  'single-use' \
+  'pre-existing dead code' \
+  'MIT'; do
+  if ! grep -qF "$required_text" "$change_discipline_contract"; then
+    echo "change-discipline: $change_discipline_contract is missing required phrase: $required_text" >&2
+    exit 1
+  fi
+done
+
+# The observation is only worth requiring if it reaches a reader, so the output
+# line is asserted in the handoff template, not merely in the contract that
+# defines it.
+readonly change_discipline_output='**Observed, not changed:** <items | none>'
+if ! grep -qF "$change_discipline_output" core/issue-workflow/references/implement-issue-contract.md; then
+  echo "change-discipline: core/issue-workflow/references/implement-issue-contract.md does not report observations in its output template" >&2
+  exit 1
+fi
 
 # Core bundles belong only at each plugin root and must be generated from the
 # canonical core directory. Skills must not grow their own contract copies.

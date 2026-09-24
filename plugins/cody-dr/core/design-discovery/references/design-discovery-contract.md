@@ -1,3 +1,4 @@
+<!-- generated from core/design-discovery/references/design-discovery-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Design-discovery contract
 
 ## Purpose

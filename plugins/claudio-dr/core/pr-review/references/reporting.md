@@ -1,3 +1,4 @@
+<!-- generated from core/pr-review/references/reporting.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Review reporting categories
 
 The finding template, the review summary template, and the re-review preamble
@@ -25,6 +26,7 @@ Choose one category:
 | `Tests & observability` | Missing behavioral evidence or diagnosability. |
 | `Documentation & contribution` | Incorrect public instructions or contributor workflow. |
 | `Performance & capacity` | Measurable resource, retention, or scale risk. |
+| `Change discipline` | Diff hunk not traceable to the request, unrequested abstraction, adjacent cleanup, or orphaned symbol. |
 
 | Class | Badge | Meaning |
 | --- | --- | --- |

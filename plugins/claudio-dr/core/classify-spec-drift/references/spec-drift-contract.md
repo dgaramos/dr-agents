@@ -1,3 +1,4 @@
+<!-- generated from core/classify-spec-drift/references/spec-drift-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Portable spec drift contract
 
 ## Source and status boundary

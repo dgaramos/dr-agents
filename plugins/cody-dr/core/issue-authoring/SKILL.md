@@ -3,6 +3,8 @@ name: author-issue
 description: Draft and optionally publish a well-structured GitHub issue. Publish only when authorized, preferring the adapter App with evidence-based personal fallback when unavailable.
 ---
 
+<!-- generated from core/issue-authoring/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable issue authoring
 
 Load [issue-contract](references/issue-contract.md) before drafting. It defines

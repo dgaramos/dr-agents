@@ -3,6 +3,8 @@ name: plan-implementation
 description: Produce a read-only, test-first implementation plan for an explicit issue. Always prints Red, Green, Refactor coverage or a justified non-executable validation plan without requesting confirmation.
 ---
 
+<!-- generated from core/issue-workflow/skills/plan-implementation/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable plan-implementation
 
 Load [workflow-contract](../../references/workflow-contract.md) and

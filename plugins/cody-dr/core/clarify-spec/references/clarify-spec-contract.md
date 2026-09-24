@@ -1,3 +1,4 @@
+<!-- generated from core/clarify-spec/references/clarify-spec-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Portable spec clarification contract
 
 ## Inputs and source boundary

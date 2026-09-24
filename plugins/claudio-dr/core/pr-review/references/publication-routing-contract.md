@@ -1,3 +1,4 @@
+<!-- generated from core/pr-review/references/publication-routing-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Publication routing
 
 Apply this contract to every already-authorized GitHub publication: issues,

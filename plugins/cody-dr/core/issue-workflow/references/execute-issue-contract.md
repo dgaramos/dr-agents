@@ -1,3 +1,4 @@
+<!-- generated from core/issue-workflow/references/execute-issue-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Execute-issue contract (orchestrator)
 
 ## Purpose

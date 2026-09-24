@@ -1,3 +1,4 @@
+<!-- generated from core/pr-review/references/profile-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Project profile contract
 
 A profile may define:

@@ -63,6 +63,31 @@ decide whether to request another page.
 **Suggested fix:** retain `next_page` or version the contract and update all consumers together.
 ```
 
+If the same PR also renames a variable in a function the issue never mentions,
+it reports a separate finding in the new category:
+
+```md
+Change discipline · 🟡 Minor · ⚡ Quick win
+
+**Keep the diff traceable to the requested change.**
+
+The pagination fix does not reach the retry helper, but the helper's loop
+variable was renamed in the same commit. The rename is correct and changes no
+behavior; it simply does not answer the request, so it enlarges the diff a
+reviewer has to attribute.
+
+**Evidence:** `api/retry.py:17` — `attempt` renamed to `attempt_index` in a hunk
+outside the pagination change.
+**Impact:** unrelated lines share the commit that the pagination fix will be
+attributed to, and a later bisect or revert carries both.
+**Suggested fix:** restore the original name here and carry the rename in a
+change of its own.
+```
+
+This is a hunk, not a style preference: the finding names lines the request
+does not reach, and it would not exist if the reviewer merely preferred a
+different name. Style preference remains outside every category.
+
 When the reviewer replies on a thread another reviewer opened, it does not
 repeat the finding. The reply gives the head it verified, adds only the evidence
 the original thread lacked, states its own severity when that class differs from

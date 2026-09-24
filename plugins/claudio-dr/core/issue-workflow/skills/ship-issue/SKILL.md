@@ -3,6 +3,8 @@ name: ship-issue
 description: Run final validation and formally ship a completed implementation.
 ---
 
+<!-- generated from core/issue-workflow/skills/ship-issue/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable ship-issue
 
 Load `../../references/ship-issue-contract.md`. Resolve the target first with

@@ -3,6 +3,8 @@ name: spec
 description: Turn a request into a portable Spec-Driven Development trio—requirements, design, and ordered implementation tasks—without writing or publishing by default.
 ---
 
+<!-- generated from core/spec/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable spec authoring
 
 Load [spec-contract](references/spec-contract.md) before drafting. It defines

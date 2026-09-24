@@ -1,3 +1,4 @@
+<!-- generated from core/pr-review/references/review-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Portable review contract
 
 Resolve the target repository before collecting anything, following
@@ -53,6 +54,7 @@ Choose one category and one class:
 | Tests & observability | missing behavioral evidence |
 | Documentation & contribution | incorrect public instruction |
 | Performance & capacity | measurable scale or resource risk |
+| Change discipline | hunk not traceable to the request, unrequested abstraction |
 
 | Class | Badge | Meaning |
 | --- | --- | --- |

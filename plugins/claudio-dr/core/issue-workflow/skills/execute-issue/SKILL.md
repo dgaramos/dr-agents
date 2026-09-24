@@ -3,6 +3,8 @@ name: execute-issue
 description: Orchestrate the full issue-to-change lifecycle: start, test-first planning, implementation, and formal shipping in sequence.
 ---
 
+<!-- generated from core/issue-workflow/skills/execute-issue/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable execute-issue
 
 Load [workflow-contract](../../references/workflow-contract.md) and

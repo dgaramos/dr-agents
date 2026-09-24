@@ -3,6 +3,8 @@ name: handle-findings
 description: Triage, fix, defer, or reject review findings against the current head. Produces minimal in-scope fixes, defers out-of-scope work as draft issues, and prepares replies and thread-resolution text without publishing unless explicitly authorized.
 ---
 
+<!-- generated from core/findings-handling/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable findings handling
 
 Load [findings-contract](references/findings-contract.md) before acting on any

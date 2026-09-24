@@ -1,3 +1,4 @@
+<!-- generated from core/issue-workflow/references/contribution-guidance-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Contribution-guidance discovery contract
 
 ## Purpose

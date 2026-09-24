@@ -1,3 +1,4 @@
+<!-- generated from core/target-resolution/references/target-resolution-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Target-resolution contract
 
 ## Precedence (RF-01)
