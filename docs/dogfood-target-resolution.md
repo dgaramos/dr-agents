@@ -200,3 +200,14 @@ Not covered by this run: the `--update` ancestry path (parenting from an
 existing branch head) was exercised only in its refusal direction, because the
 authorization for this dogfood covered a single commit. A successful `--update`
 against a real repository remains covered by `tests/test_remote_write.sh` alone.
+
+Also not covered: a full spec-authoring manifest. Scenario (c) wrote the test
+trio that dr-agents#338 task (c) specifies, exercising `remote-write.sh` as the
+generic writer it is — ancestry, manifest scope, exact message, refusal
+symmetry. It did not run the spec-authoring flow, whose manifest must carry the
+three trio files *and* the updated `index.md`
+(`core/spec/references/spec-contract.md:161`). That composition rule belongs to
+the caller, not to the writer, and no live run has exercised it. AC-13 as
+dr-agents#338 states it — the PR belongs to the specs repository and its
+verified author is the adapter bot — is satisfied independently of manifest
+composition, and both of its conjuncts are recorded above.
