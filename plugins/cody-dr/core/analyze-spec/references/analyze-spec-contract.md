@@ -1,3 +1,4 @@
+<!-- generated from core/analyze-spec/references/analyze-spec-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Portable spec analysis contract
 
 ## Inputs and source boundary

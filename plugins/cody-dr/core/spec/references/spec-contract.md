@@ -1,3 +1,4 @@
+<!-- generated from core/spec/references/spec-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Spec-Driven Development contract
 
 ## Purpose

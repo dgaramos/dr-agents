@@ -3,6 +3,8 @@ name: target-resolution
 description: Resolve the repository targeted by an explicit reference, the specs source, or the current checkout before loading profiles or operating on repository state.
 ---
 
+<!-- generated from core/target-resolution/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable target resolution
 
 Load `references/target-resolution-contract.md`, then run

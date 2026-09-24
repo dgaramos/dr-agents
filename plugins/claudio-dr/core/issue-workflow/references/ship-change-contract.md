@@ -1,3 +1,4 @@
+<!-- generated from core/issue-workflow/references/ship-change-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Ship-change contract
 
 ## Inputs

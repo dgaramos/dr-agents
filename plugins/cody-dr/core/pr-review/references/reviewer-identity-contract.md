@@ -1,3 +1,4 @@
+<!-- generated from core/pr-review/references/reviewer-identity-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Reviewer identity and publisher capability contract
 
 This contract distinguishes a reviewer from the mechanisms that may publish on

@@ -3,6 +3,8 @@ name: design-discovery
 description: Assess a UX/UI request or existing design evidence and return an actionable, evidence-grounded Design Brief without changing project or external state.
 ---
 
+<!-- generated from core/design-discovery/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable design discovery
 
 Load [design-discovery-contract](references/design-discovery-contract.md)

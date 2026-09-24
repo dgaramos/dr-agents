@@ -3,6 +3,8 @@ name: ship-change
 description: Prepare and publish a fully populated pull request for a completed implementation as a normal issue-execution action.
 ---
 
+<!-- generated from core/issue-workflow/skills/ship-change/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable ship-change
 
 Load [workflow-contract](../../references/workflow-contract.md) and

@@ -1,3 +1,4 @@
+<!-- generated from core/issue-workflow/references/start-issue-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Start-issue contract
 
 ## Inputs

@@ -1,3 +1,4 @@
+<!-- generated from core/profile-discovery/references/profile-discovery-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Project profile discovery contract
 
 Before a project-aware workflow starts, resolve its target through

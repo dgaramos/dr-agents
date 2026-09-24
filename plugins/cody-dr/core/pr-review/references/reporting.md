@@ -1,3 +1,4 @@
+<!-- generated from core/pr-review/references/reporting.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Review reporting categories
 
 The finding template, the review summary template, and the re-review preamble

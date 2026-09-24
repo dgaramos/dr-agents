@@ -1,3 +1,4 @@
+<!-- generated from core/pr-review/references/knowledge-sources-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Knowledge sources contract
 
 Profiles may declare authorized knowledge sources that improve a review without

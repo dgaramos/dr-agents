@@ -3,6 +3,8 @@ name: implement-issue
 description: Implement the changes required by an issue on the working branch. Makes minimal in-scope changes, runs quality gates after each logical unit, and commits in isolation.
 ---
 
+<!-- generated from core/issue-workflow/skills/implement-issue/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable implement-issue
 
 Load [workflow-contract](../../references/workflow-contract.md) and

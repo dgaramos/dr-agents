@@ -1,3 +1,4 @@
+<!-- generated from core/issue-authoring/references/issue-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Portable issue authoring contract
 
 ## Mode detection

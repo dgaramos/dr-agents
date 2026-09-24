@@ -3,6 +3,8 @@ name: design-and-author
 description: Chain design discovery directly into issue authoring. Runs design-discovery once and passes its output as context to author-issue without a separate manual invocation.
 ---
 
+<!-- generated from core/design-discovery/skills/design-and-author/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable design-and-author
 
 Load [design-discovery-contract](../../references/design-discovery-contract.md)

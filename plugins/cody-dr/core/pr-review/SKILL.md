@@ -3,6 +3,8 @@ name: pr-review
 description: Review an explicit pull request, branch, commit range, or local diff with evidence-first findings and incremental re-review. Use for manual code review, cross-model PR review, or verifying resolved review findings; require a project profile for repository-specific rules.
 ---
 
+<!-- generated from core/pr-review/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable PR review
 
 Review only an explicit PR, branch, commit range, or local diff. Do not infer a

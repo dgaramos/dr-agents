@@ -1,3 +1,4 @@
+<!-- generated from core/issue-workflow/references/workflow-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Portable issue-to-change workflow contract
 
 ## Profile-owned fields

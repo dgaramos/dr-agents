@@ -1,3 +1,4 @@
+<!-- generated from core/issue-workflow/references/change-discipline-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Change-discipline contract
 
 ## Purpose
@@ -94,4 +95,7 @@ surfaced rather than resolved silently.
 
 The simplicity and surgical rules above are derived from §2 "Simplicity First"
 and §3 "Surgical Changes" of `multica-ai/andrej-karpathy-skills`
-(`skills/karpathy-guidelines/SKILL.md`), used under the MIT license.
+(`skills/karpathy-guidelines/SKILL.md`), which its author declares MIT in
+`.claude-plugin/plugin.json` and in its README. That repository ships no
+LICENSE file and no copyright line, so the declaration is recorded here as
+made rather than asserted as a grant.

@@ -3,6 +3,8 @@ name: start-issue
 description: Begin an issue-to-change lifecycle. Loads the profile, resolves the issue, checks dependencies, and creates the working branch using profile-defined branch naming.
 ---
 
+<!-- generated from core/issue-workflow/skills/start-issue/SKILL.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
+
 # Portable start-issue
 
 Load [workflow-contract](../../references/workflow-contract.md) and

@@ -1,3 +1,4 @@
+<!-- generated from core/findings-handling/references/findings-contract.md by bin/sync-plugin-core-bundles.sh -- do not edit -->
 # Portable findings-handling contract
 
 ## Verification before acting
