@@ -1,5 +1,5 @@
 {
-  "name": "agent-workflows",
+  "name": "dr-agents",
   "interface": {
     "displayName": "Agent Workflows"
   },
