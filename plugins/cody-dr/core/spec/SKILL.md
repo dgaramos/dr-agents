@@ -9,9 +9,18 @@ Load [spec-contract](references/spec-contract.md) before drafting. It defines
 the mandatory structure of `requirements.md`, `design.md`, and `tasks.md`, the
 executor boundary, and the explicit write and publication boundary.
 
-Load the target project's profile before applying project-specific architecture,
-commands, repository locations, or delivery rules. With no profile, create a
-portable response only and state that project-specific settings are unknown.
+Resolve the target through
+`core/target-resolution/references/target-resolution-contract.md` before
+loading a profile. An authorized spec write targets the specs repository:
+resolve it with
+`core/target-resolution/scripts/resolve-target.sh --from-specs-repository
+"$SPECS_REPOSITORY"`, which reports `source: specs-repository`.
+
+Load the profile discovered at that target before applying project-specific
+architecture, commands, repository locations, or delivery rules. With no
+profile, create a portable response only and state that project-specific
+settings are unknown. Never apply the current directory's profile to another
+repository.
 
 ## Steps
 
@@ -34,10 +43,23 @@ portable response only and state that project-specific settings are unknown.
    profile-declared exact source only after it passes the authorized-source
    conditions. Report the three resolved files in the handoff; do not infer an
    alternate location or alter the issue body.
-6. Write the trio to a `specs/` repository only when the caller explicitly
-   authorizes that exact write and the loaded profile declares the target path.
-   Otherwise, return the complete trio in the response and report that it was
-   not written.
+6. Decide the write outcome per the contract's write boundary:
+   The three branches are exclusive and exhaustive; select on whether a source
+   resolved and whether the exact write was explicitly authorized.
+   - No resolved specs source: return the trio in
+     the response and report `Write: not written: <reason>`.
+   - Source resolved and no explicit write authorization: report
+     `Write: proposed path specs/<project>/<slug>/` together with the exact
+     write invocation that would perform it. Propose; do not write.
+     A resolved source never returns `not written`.
+   - Source resolved and the caller explicitly authorized that exact write:
+     verify the checkout before any mutation, then write the trio on branch
+     `feat/<slug>` with `git -C <checkout>`, or with
+     `core/target-resolution/scripts/remote-write.sh` in `mode: remote-only`.
+     Register the slug in the project's `index.md` and open the pull request
+     through the adapter's `ship-change` flow, dispatched `--repo <target>` —
+     in `mode: remote-only` through that flow's remote-only entry point, which
+     publishes the already-pushed branch and needs no checkout.
 7. Emit the summary block below.
 
 ## Spec summary
@@ -45,14 +67,20 @@ portable response only and state that project-specific settings are unknown.
 ```md
 ## Spec — <request reference>
 
+**Target:** owner/repository (checkout: /absolute/path)
+**Profile:** project (/absolute/path/.dr-agents/project/PROFILE.md)
 **Classification:** <feature|chore|spike|bug>
 **Design Brief:** <used|not supplied>
 **Trio:** `requirements.md`, `design.md`, `tasks.md`
 **Traceability:** <every AC mapped to a task; every task has Verification:|limitations>
-**Write:** <not requested|not written: reason|written to <path>>
+**Checkout state:** <not applicable|clean on <branch>|<observed state>>
+**Write:** <not requested|not written: reason|proposed path specs/<project>/<slug>/|written to <path>>
 **Issue links:** <not applicable|not added: reason|added to #N>
 **Publication:** not published
 ```
 
 The spec skill never creates an issue, modifies code, writes a repository, or
-publishes an artifact by default.
+publishes an artifact by default. It writes only under an explicit
+authorization for that exact write, and only inside the resolved target —
+`git -C <checkout>` or `remote-write.sh`, never a bare git command in the
+current directory.
