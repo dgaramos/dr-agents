@@ -234,12 +234,44 @@ else
   echo "warning: not a git repository; git-dependent checks will be skipped" >&2
 fi
 
+# dr-agents#330 follow-up: the derived pair check runs BEFORE required_paths.
+#
+# required_paths is hand-maintained and enforced early, so for any surface
+# already on that list a missing Cody counterpart was reported as a bare
+# "required path missing" and the run stopped there -- the derived guard's own
+# missing-counterpart branch could never speak. Both failures are real, but only
+# one of them explains WHY the file is required. Deriving the adopting set from
+# content and checking it first means the precise message is never shadowed by
+# the coarse one. The list still runs, and still catches a pair deleted from
+# both sides, which no derivation can see.
+adopting_claudio_surfaces() {
+  grep -lF 'target-resolution' \
+    plugins/claudio-dr/skills/*/SKILL.md plugins/claudio-dr/agents/*.md 2>/dev/null || true
+}
+
+startup_failed=0
+while IFS= read -r claudio_surface; do
+  [[ -n "$claudio_surface" ]] || continue
+  relative_surface="${claudio_surface#plugins/claudio-dr/}"
+  cody_surface="plugins/cody-dr/${relative_surface/claudio-/cody-}"
+  if [[ ! -f "$cody_surface" ]]; then
+    echo "parity: $claudio_surface adopts target resolution but $cody_surface does not exist" >&2
+    startup_failed=1
+  fi
+done < <(adopting_claudio_surfaces)
+
+# Report every missing path, not merely the first: one absent file used to hide
+# every other absent file behind it.
 for path in "${required_paths[@]}"; do
   if ! test -f "$path"; then
     echo "required path missing: $path" >&2
-    exit 1
+    startup_failed=1
   fi
 done
+
+if [[ "$startup_failed" == "1" ]]; then
+  exit 1
+fi
 
 # A dangling symlink makes this repository unusable as a GitHub Actions action
 # repository: the runner stages the whole repo before resolving the action and
@@ -1057,8 +1089,7 @@ while IFS= read -r claudio_surface; do
     echo "parity: $cody_surface does not mirror $claudio_surface once identity is normalized" >&2
     adopting_parity_failed=1
   fi
-done < <(grep -lF 'target-resolution' \
-  plugins/claudio-dr/skills/*/SKILL.md plugins/claudio-dr/agents/*.md 2>/dev/null || true)
+done < <(adopting_claudio_surfaces)
 if [[ "$adopting_parity_failed" == "1" ]]; then
   exit 1
 fi
