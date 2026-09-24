@@ -97,9 +97,19 @@ contributor.
 
 ## Installation
 
-There are two ways to get the agents, and they cover different ground. Working
-**inside this repository** needs no install at all. Using the agents **in other
-repositories** needs `bin/install --global` on that machine.
+There are three routes, and they cover different ground.
+
+| Route | Reaches | Needs the machine? |
+| --- | --- | --- |
+| A checkout of this repository | this repository, anywhere — including a cloud session | no |
+| `/plugin` marketplace | every repository on one machine | yes |
+| `bin/install --global` | every repository on one machine | yes |
+
+Working **inside this repository** needs no install at all. The other two both
+put the adapters on one machine and are **alternatives, not layers** — pick
+one. Running both leaves two copies of the same adapter registered by different
+mechanisms, which is how an install ends up serving a stale version from a
+source nobody is watching.
 
 ### Working inside this repository (no install)
 
@@ -261,6 +271,12 @@ itself. If you have direnv installed, run `direnv allow` once after cloning.
 /plugin install claudio-dr@dr-agents
 ```
 
+> **Renamed from `agent-workflows`.** The marketplace was published under the
+> repository's former name until `v0.1.41`. A registration keyed on the old
+> name does not follow the rename: re-add the marketplace and reinstall under
+> `dr-agents`, then remove the orphaned cache directory left behind under the
+> old name.
+
 Invoke a skill or use a workflow agent:
 
 ```text
@@ -280,6 +296,18 @@ update, and local validation flow.
 ```bash
 codex plugin marketplace add /path/to/dr-agents
 codex plugin add cody-dr@dr-agents
+```
+
+The same rename applies. In `~/.codex/config.toml` the marketplace key and the
+plugin key both change, and the cache directory under the old name is orphaned:
+
+```toml
+[marketplaces.dr-agents]
+source_type = "local"
+source = "/path/to/dr-agents"
+
+[plugins."cody-dr@dr-agents"]
+enabled = true
 ```
 
 Invoke a workflow agent or skill:
