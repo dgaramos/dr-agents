@@ -16,8 +16,10 @@ confirmed branch, issue reference, and test-first plan.
    behavior change, write or update the planned Red test first and verify its
    failure for the expected reason.
 3. Make the smallest Green implementation that passes the planned happy path,
-   failure path, relevant edge cases, and regression coverage. Refactor only
-   with those tests still passing.
+   failure path, relevant edge cases, and regression coverage, keeping the diff
+   within [change-discipline-contract](change-discipline-contract.md): minimum
+   code, no single-use abstraction, no adjacent edits, every changed line
+   traceable to the request. Refactor only with those tests still passing.
 4. For an explicitly non-executable change, run the structural validation named
    in the plan. Do not claim TDD is inapplicable merely to avoid writing tests.
 5. After each logical unit, run the profile's quality command. Stop immediately
@@ -50,6 +52,7 @@ confirmed branch, issue reference, and test-first plan.
 **Spec task traceability:** <task ID → covered criterion IDs → verification result, or unavailable: trio lacks traceability format>
 **Acceptance criteria:** <all addressed|not yet addressed: criterion>
 **Contribution guidance:** <applied: <items> | not found | conflict: <description>>
+**Observed, not changed:** <items | none>
 **Next:** ship-issue
 ```
 

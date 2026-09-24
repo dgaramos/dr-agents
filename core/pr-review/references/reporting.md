@@ -25,6 +25,7 @@ Choose one category:
 | `Tests & observability` | Missing behavioral evidence or diagnosability. |
 | `Documentation & contribution` | Incorrect public instructions or contributor workflow. |
 | `Performance & capacity` | Measurable resource, retention, or scale risk. |
+| `Change discipline` | Diff hunk not traceable to the request, unrequested abstraction, adjacent cleanup, or orphaned symbol. |
 
 | Class | Badge | Meaning |
 | --- | --- | --- |

@@ -30,16 +30,20 @@ For example, an itemized decision request can offer:
 | `#2` | pertinent, separate issue | create a separate issue; reply only; leave open |
 | `#3` | not pertinent | publish a factual reply; leave open; fix anyway |
 
-Do not fix more than the finding describes. Do not refactor, clean up, or
-extend beyond the minimal correction. If a fix would require touching files or
-logic outside the PR's scope, offer a separate issue rather than deciding to
-defer it unilaterally.
+Do not fix more than the finding describes. The diff is bound by
+[change-discipline-contract](../../issue-workflow/references/change-discipline-contract.md);
+follow that contract rather than a copy of its rules here. If a fix would
+require touching files or logic outside the PR's scope, offer a separate issue
+rather than deciding to defer it unilaterally.
 
 ## Fixing
 
 For each user-approved `pertinent, in scope` finding:
 
-1. Make the minimal correction on the current head.
+1. Make the minimal correction on the current head, within
+   [change-discipline-contract](../../issue-workflow/references/change-discipline-contract.md).
+   Record anything noticed and deliberately left alone as
+   `Observed, not changed:` in the outcome summary.
 2. Run the profile's quality command. If it fails, stop; do not claim the
    finding is resolved until validation passes.
 3. Create a dedicated commit for that finding. Include the PR/issue reference
@@ -126,4 +130,5 @@ Emit one summary block per handling session:
 **Issues:** <finding → issue or none>
 **Replies prepared:** N · **Published:** <N published|not requested|not published>
 **Publication identity:** <reviewer App actor|personal fallback: @login|none>
+**Observed, not changed:** <items | none>
 ```

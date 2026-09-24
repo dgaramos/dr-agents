@@ -53,6 +53,7 @@ Choose one category and one class:
 | Tests & observability | missing behavioral evidence |
 | Documentation & contribution | incorrect public instruction |
 | Performance & capacity | measurable scale or resource risk |
+| Change discipline | hunk not traceable to the request, unrequested abstraction |
 
 | Class | Badge | Meaning |
 | --- | --- | --- |
