@@ -8,6 +8,8 @@ trap 'rm -rf "$tmp"' EXIT
 readonly fake_home="$tmp/home"
 readonly fake_repo="$tmp/repo"
 readonly codex_dir="$tmp/home/.codex"
+readonly fake_bin="$tmp/bin"
+readonly codex_call_log="$tmp/codex.log"
 
 # Run bin/install with overridden HOME and CODEX_CONFIG_DIR.
 # First arg is the working directory; remaining args are passed to bin/install.
@@ -19,10 +21,13 @@ run_install() {
   local workdir="$1"; shift
   ( cd "$workdir" \
       && HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" \
+         CODEX_CALL_LOG="$codex_call_log" PATH="$fake_bin:$PATH" \
          bash "$repository_root/bin/install" "$@" 2>&1 )
 }
 
-mkdir -p "$fake_home" "$fake_repo"
+mkdir -p "$fake_home" "$fake_repo" "$fake_bin"
+cp "$repository_root/tests/helpers/fake-codex.sh" "$fake_bin/codex"
+chmod +x "$fake_bin/codex"
 
 # ---------------------------------------------------------------------------
 # --global: installs claudio-dr and cody-dr into simulated home directories
@@ -33,12 +38,18 @@ claudio_manifest="$fake_home/.claude/.claude-plugin/plugin.json"
 cody_ver="$(jq -r '.version' "$repository_root/plugins/cody-dr/.codex-plugin/plugin.json" 2>/dev/null \
   || grep '"version"' "$repository_root/plugins/cody-dr/.codex-plugin/plugin.json" | head -1 \
   | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
-cody_manifest="$codex_dir/plugins/cache/cody-dr/${cody_ver}/.codex-plugin/plugin.json"
+cody_manifest="$codex_dir/plugins/cache/dr-agents/cody-dr/${cody_ver}/.codex-plugin/plugin.json"
 
 agents_bin="$fake_home/.local/bin/agents"
 
 [[ -f "$claudio_manifest" ]] || { echo "FAIL: claudio-dr plugin.json not installed" >&2; exit 1; }
 [[ -f "$cody_manifest" ]]    || { echo "FAIL: cody-dr plugin.json not installed" >&2; exit 1; }
+[[ ! -e "$codex_dir/plugins/cache/cody-dr" ]] \
+  || { echo "FAIL: --global created the legacy direct Cody cache" >&2; exit 1; }
+grep -qF "plugin marketplace add $repository_root" "$codex_call_log" \
+  || { echo "FAIL: --global did not register the dr-agents marketplace" >&2; exit 1; }
+grep -qF "plugin add cody-dr@dr-agents" "$codex_call_log" \
+  || { echo "FAIL: --global did not install cody-dr@dr-agents" >&2; exit 1; }
 [[ -f "$agents_bin" ]]       || { echo "FAIL: agents CLI not installed at $agents_bin" >&2; exit 1; }
 [[ -x "$agents_bin" ]]       || { echo "FAIL: agents CLI is not executable" >&2; exit 1; }
 # The wrapper reads the pointer file at runtime; verify it references the pointer file path.

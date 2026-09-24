@@ -30,10 +30,10 @@ readonly fake_tarball_path="$fake_catalog_store/tmp/$fake_tarball_name"
 (cd "$repository_root" && \
   tar czf "$fake_tarball_path" \
     --transform "s|^|dr-agents-${test_ver}/|" \
-    bin plugins profiles core .dr-agents 2>/dev/null || \
+    bin plugins profiles core .agents .codex-plugin .dr-agents 2>/dev/null || \
   tar czf "$fake_tarball_path" \
     -s "|^|dr-agents-${test_ver}/|" \
-    bin plugins profiles core .dr-agents 2>/dev/null || \
+    bin plugins profiles core .agents .codex-plugin .dr-agents 2>/dev/null || \
   COPYFILE_DISABLE=1 tar czf "$fake_tarball_path" \
     --exclude="*.DS_Store" \
     -C "$repository_root" \
@@ -110,9 +110,12 @@ echo "curl stub: unhandled URL: \$url" >&2
 exit 1
 EOF
 chmod +x "$fake_bin/curl"
+cp "$repository_root/tests/helpers/fake-codex.sh" "$fake_bin/codex"
+chmod +x "$fake_bin/codex"
+readonly codex_call_log="$tmp/codex.log"
 
 run_install() {
-  HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" PATH="$fake_bin:$PATH" \
+  HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" CODEX_CALL_LOG="$codex_call_log" PATH="$fake_bin:$PATH" \
     bash "$repository_root/bin/install" "$@" 2>&1
 }
 

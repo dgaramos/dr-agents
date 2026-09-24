@@ -86,6 +86,7 @@ readonly required_paths=(
   ".github/scripts/smoke-find-issue-target.sh"
   "tests/test_smoke_find_issue_target.sh"
   "tests/test_stub_version_guard.sh"
+  "tests/helpers/fake-codex.sh"
   "tests/test_publish_issue_comment.sh"
   "core/pr-review/SKILL.md"
   "core/pr-review/references/review-contract.md"
@@ -769,6 +770,9 @@ bash tests/test_adapter_commits.sh
 bash tests/test_attribution_hook.sh
 bash tests/test_publish_pr.sh
 bash tests/test_publish_review.sh
+bash tests/test_install.sh
+bash tests/test_update.sh
+bash tests/test_install_download.sh
 bash tests/test_install_workflows.sh
 # Vendored core/ files in a consumer (dr-agents#304). The check mode must name
 # the file and its state; a generic "vendored files found" is silence renamed.
