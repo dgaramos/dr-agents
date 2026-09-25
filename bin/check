@@ -52,6 +52,7 @@ readonly required_paths=(
   ".github/workflows/publish-cody-pr.yml"
   ".github/workflows/publish-claudio-pr.yml"
   ".github/scripts/publish-pr.sh"
+  ".github/scripts/verify-publisher-capabilities.sh"
   "core/pr-review/references/publication-routing-contract.md"
   "core/pr-review/scripts/select-publisher.sh"
   "core/pr-review/scripts/verify-publisher-dispatch.sh"
@@ -81,6 +82,7 @@ readonly required_paths=(
   ".github/scripts/smoke-publishers-assert.sh"
   ".github/scripts/smoke-publishers-reap.sh"
   "tests/test_publisher_smoke.sh"
+  "tests/test_verify_publisher_capabilities.sh"
   ".github/scripts/publication-outcome.sh"
   "tests/test_publication_outcomes.sh"
   ".github/scripts/smoke-find-issue-target.sh"
@@ -776,6 +778,7 @@ bash tests/test_adapter_commits.sh
 bash tests/test_attribution_hook.sh
 bash tests/test_publish_pr.sh
 bash tests/test_publish_review.sh
+bash tests/test_verify_publisher_capabilities.sh
 bash tests/test_install.sh
 bash tests/test_update.sh
 bash tests/test_install_download.sh
@@ -1720,42 +1723,11 @@ validate_agent_reach() {
   done
 }
 
-# A publisher mode declares the target types it is dispatched against, and its
-# App token must request a write permission for each. dr-agents#447: the comment
-# publisher was declared, installed, correctly named, and returned 403 on every
-# pull-request target because its token requested issues:write alone. The
-# existing dispatch verification is a PRESENCE check -- declared mode maps to an
-# installed file -- and a present, correctly-named publisher that cannot
-# authorize against half its targets is exactly what it cannot see.
-#
-# Both sets are derived from the workflow files: the declared targets from the
-# marker, the granted permissions from the token step. Nothing here enumerates
-# modes, so a publisher added without a marker fails for lacking one.
-publisher_capability_failed=0
-for definition in .github/workflows/reusable-publish-*.yml; do
-  [[ -f "$definition" ]] || continue
-  declared_targets="$(sed -n 's/^# publisher-targets:[[:space:]]*//p' "$definition")"
-  if [[ -z "$declared_targets" ]]; then
-    echo "publisher-capability: $definition declares no '# publisher-targets:' marker" >&2
-    publisher_capability_failed=1
-    continue
-  fi
-  for target in $declared_targets; do
-    case "$target" in
-      issues)        required_permission="permission-issues: write" ;;
-      pull-requests) required_permission="permission-pull-requests: write" ;;
-      *)
-        echo "publisher-capability: $definition declares unknown target '$target'" >&2
-        publisher_capability_failed=1
-        continue 2 ;;
-    esac
-    if ! grep -qF "$required_permission" "$definition"; then
-      echo "publisher-capability: $definition is dispatched against $target but its App token does not request '$required_permission'" >&2
-      publisher_capability_failed=1
-    fi
-  done
-done
-if [[ "$publisher_capability_failed" == "1" ]]; then
+# A publisher mode must be able to authorize against every target type it
+# declares. The verifier derives both sets from the workflow files -- declared
+# targets from the `# publisher-targets:` marker, granted permissions from the
+# App-token step's inputs -- so nothing here enumerates modes.
+if ! bash .github/scripts/verify-publisher-capabilities.sh .github/workflows; then
   exit 1
 fi
 
