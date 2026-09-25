@@ -142,6 +142,8 @@ readonly required_paths=(
   "core/issue-workflow/skills/execute-issue/SKILL.md"
   "bin/agents"
   "bin/drift"
+  ".github/scripts/verify-catalog-parity.sh"
+  "tests/test_verify_catalog_parity.sh"
   "bin/install"
   "bin/update"
   "bin/sync-plugin-core-bundles.sh"
@@ -285,6 +287,15 @@ adopting_surface_pairs() {
         done || true
   } | sort -u
 }
+
+# Manifest and skill-set parity run BEFORE the derived pair check. A skill
+# directory named with an adapter prefix has no prefix to substitute, so the
+# derivation maps it to itself and demands a counterpart path nobody intended --
+# reported as a missing file rather than as the naming mistake that caused it.
+# Checking the sets first means the precise message is never shadowed by the
+# coarse one, the same ordering rationale the pair check applies ahead of
+# required_paths.
+bash .github/scripts/verify-catalog-parity.sh
 
 startup_failed=0
 while IFS=$'\t' read -r claudio_relative cody_relative; do
@@ -660,7 +671,13 @@ done
 # surface differs from its source tree.
 jq -e '.name == "cody-dr" and (.version | type == "string") and .skills == "./skills/" and .agents == "./agents/"' \
   plugins/cody-dr/.codex-plugin/plugin.json >/dev/null
-jq -e '.name == "claudio-dr" and (.version | type == "string") and .skills == "./skills/" and (has("agents") | not) and (has("interface") | not)' \
+# dr-agents#436: this asserted `has("agents") | not`, so the gate REQUIRED the
+# asymmetry rather than merely failing to notice it. Claudio ships seven agents
+# and declared none; they loaded by Claude Code's convention-based discovery,
+# which is a platform behaviour this catalog does not control. `interface` stays
+# forbidden here: it is Codex presentation, not a component directory, and
+# verify-catalog-parity.sh compares only directory-valued keys for that reason.
+jq -e '.name == "claudio-dr" and (.version | type == "string") and .skills == "./skills/" and .agents == "./agents/" and (has("interface") | not)' \
   plugins/claudio-dr/.claude-plugin/plugin.json >/dev/null
 claudio_version="$(jq -r '.version' plugins/claudio-dr/.claude-plugin/plugin.json)"
 cody_version="$(jq -r '.version' plugins/cody-dr/.codex-plugin/plugin.json)"
@@ -779,6 +796,7 @@ bash tests/test_attribution_hook.sh
 bash tests/test_publish_pr.sh
 bash tests/test_publish_review.sh
 bash tests/test_verify_publisher_capabilities.sh
+bash tests/test_verify_catalog_parity.sh
 bash tests/test_install.sh
 bash tests/test_update.sh
 bash tests/test_install_download.sh
