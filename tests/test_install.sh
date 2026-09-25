@@ -118,6 +118,43 @@ echo "$legacy_status" | grep -q "will not remove" \
 rm -rf "$claude_dir/.claude-plugin"
 
 # ---------------------------------------------------------------------------
+# --status: the legacy report names only catalog-owned entries
+#
+# The report must never hand the operator a directory such as ~/.claude/agents
+# as a removal target: the user's own agents and Claude Code's own
+# skills/synced/ store live under the same names. Only an entry whose name
+# comes from plugins/claudio-dr/ is legacy.
+# ---------------------------------------------------------------------------
+mkdir -p "$claude_dir/agents"
+printf 'not from this catalog\n' > "$claude_dir/agents/personal-not-catalog.md"
+
+ownership_status="$(run_install "$tmp" --status)"
+if echo "$ownership_status" | grep -qF "personal-not-catalog.md"; then
+  echo "FAIL: --status named a user-owned agent as a legacy path" >&2; exit 1
+fi
+if echo "$ownership_status" | grep -qE "^ +${claude_dir}/agents\$"; then
+  echo "FAIL: --status named the whole agents directory as a legacy path" >&2; exit 1
+fi
+if echo "$ownership_status" | grep -q "will not remove"; then
+  echo "FAIL: --status reported a legacy copy with only user-owned entries present" >&2; exit 1
+fi
+
+# The positive half: an entry carrying a catalog-owned name is still reported,
+# so the negative assertions above cannot pass by reporting nothing at all.
+catalog_agent="$(basename "$(find "$repository_root/plugins/claudio-dr/agents" -maxdepth 1 -type f -name '*.md' | head -1)")"
+[[ -n "$catalog_agent" ]] || { echo "FAIL: no catalog agent found to build the positive case" >&2; exit 1; }
+cp "$repository_root/plugins/claudio-dr/agents/$catalog_agent" "$claude_dir/agents/$catalog_agent"
+
+ownership_status="$(run_install "$tmp" --status)"
+echo "$ownership_status" | grep -qF "$claude_dir/agents/$catalog_agent" \
+  || { echo "FAIL: --status did not name the catalog-owned legacy agent; output: $ownership_status" >&2; exit 1; }
+if echo "$ownership_status" | grep -qF "personal-not-catalog.md"; then
+  echo "FAIL: --status named a user-owned agent alongside the catalog-owned one" >&2; exit 1
+fi
+
+rm -rf "$claude_dir/agents"
+
+# ---------------------------------------------------------------------------
 # --global: the claude CLI is a hard dependency of the marketplace route
 #
 # The canonical route runs through `claude plugin`; with no such binary the

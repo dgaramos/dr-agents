@@ -613,10 +613,10 @@ mode_install_workflows() {
 #
 # This reports the copy and stops there. Removal is a separate, explicitly
 # confirmed action: an installer that deletes files in a directory it no longer
-# owns is not one anybody should trust. ~/.claude/skills/synced/ is Claude
-# Code's own synced-skills store and has nothing to do with this catalog, so
-# the whole skills/ directory is never named — only the catalog's own paths
-# inside it.
+# owns is not one anybody should trust. For the same reason no payload
+# directory is ever named as a whole: ~/.claude/agents/ and ~/.claude/skills/
+# also hold the user's own agents and Claude Code's synced-skills store. Only
+# entries carrying a name this catalog owns are reported.
 report_legacy_claudio_copy() {
   local claude_config="$1"
 
@@ -626,25 +626,24 @@ report_legacy_claudio_copy() {
   local legacy_paths=()
   [[ -f "${claude_config}/.claude-plugin/plugin.json" ]] \
     && legacy_paths+=("${claude_config}/.claude-plugin/plugin.json")
-  local entry name
+  local entry name child child_name
   for entry in "${REPO_DIR}"/plugins/claudio-dr/*/; do
     [[ -d "$entry" ]] || continue
     name="$(basename "$entry")"
     # workflows/ is installed only by --workflows and was never part of the
-    # direct copy; skills/ is reported per catalog skill, not as a directory,
-    # because Claude Code keeps its own store under the same name.
+    # direct copy.
     [[ "$name" == "workflows" ]] && continue
-    if [[ "$name" == "skills" ]]; then
-      local skill_dir skill_name
-      for skill_dir in "$entry"*/; do
-        [[ -d "$skill_dir" ]] || continue
-        skill_name="$(basename "$skill_dir")"
-        [[ -e "${claude_config}/skills/${skill_name}" ]] \
-          && legacy_paths+=("${claude_config}/skills/${skill_name}")
-      done
-      continue
-    fi
-    [[ -e "${claude_config}/${name}" ]] && legacy_paths+=("${claude_config}/${name}")
+    # Never name a payload directory itself: the existence of ~/.claude/agents
+    # proves nothing about who wrote what is inside it, and ~/.claude/skills/
+    # is also Claude Code's own synced-skills store. Only entries whose names
+    # come from this catalog are reported, so a user's own agent, command or
+    # skill is never handed to the operator as a removal target.
+    for child in "$entry"*; do
+      [[ -e "$child" ]] || continue
+      child_name="$(basename "$child")"
+      [[ -e "${claude_config}/${name}/${child_name}" ]] \
+        && legacy_paths+=("${claude_config}/${name}/${child_name}")
+    done
   done
 
   [[ "${#legacy_paths[@]}" -gt 0 ]] || return 0
