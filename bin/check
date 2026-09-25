@@ -155,6 +155,8 @@ readonly required_paths=(
   "examples/generic-pr-shipping.md"
   "examples/generic-contribution-guidance.md"
   "examples/generic-change-discipline.md"
+  "core/work-sizing/references/work-sizing-contract.md"
+  "examples/generic-work-sizing.md"
   ".codex-plugin/marketplace.json"
   "plugins/cody-dr/.codex-plugin/plugin.json"
   "plugins/cody-dr/skills/review-pr/SKILL.md"
@@ -1480,6 +1482,53 @@ for skill_name in "${change_discipline_skills[@]}"; do
       exit 1
     fi
   done
+done
+
+# Work sizing is a portable rule about the UNIT of work — how much one issue or
+# one task holds — so it lives in one core contract and both consuming
+# contracts point at it. The phrases below are the load-bearing ones: each
+# names a rule an author acts on when drawing a boundary, and a contract that
+# has lost one has lost the rule, not just a sentence. They are asserted
+# individually so the failure names which rule went missing.
+readonly work_sizing_contract="core/work-sizing/references/work-sizing-contract.md"
+for required_text in \
+  'what is changed, reviewed, and reverted together' \
+  'name every criterion it covers' \
+  'state what forces the boundary' \
+  'expensive to reverse' \
+  'Absent one of those, merge.' \
+  'where a reviewer can read it' \
+  'Signals to merge, not to split'; do
+  if ! grep -qF "$required_text" "$work_sizing_contract"; then
+    echo "work-sizing: $work_sizing_contract is missing required phrase: $required_text" >&2
+    exit 1
+  fi
+done
+
+# The rule only binds work if the contracts that govern issue authoring and
+# spec task breakdown reach it, so each must name the file by path.
+for consumer in \
+  core/issue-authoring/references/issue-contract.md \
+  core/spec/references/spec-contract.md; do
+  if ! grep -qF "$work_sizing_contract" "$consumer"; then
+    echo "work-sizing: $consumer does not reference $work_sizing_contract" >&2
+    exit 1
+  fi
+done
+
+# The sizing rule must exist in exactly one portable file. This is scoped to the
+# two consuming contracts BY EXPLICIT PATH and must stay that way: the generated
+# plugin core bundles are faithful copies of core/, so the sentence legitimately
+# appears in plugins/*/core/ too. A tree-wide grep here would match those
+# bundles and fail after the sync step, making a correct sync look like a break.
+readonly work_sizing_unique='what is changed, reviewed, and reverted together'
+for consumer in \
+  core/issue-authoring/references/issue-contract.md \
+  core/spec/references/spec-contract.md; do
+  if grep -qF "$work_sizing_unique" "$consumer"; then
+    echo "work-sizing: $consumer restates the sizing rule; reference $work_sizing_contract by path instead" >&2
+    exit 1
+  fi
 done
 
 # Core bundles belong only at each plugin root and must be generated from the

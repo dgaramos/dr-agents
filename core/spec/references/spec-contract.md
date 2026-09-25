@@ -91,6 +91,11 @@ Every acceptance criterion in `requirements.md` must map to one or more tasks,
 and every task must be justified by a requirement, constraint, or necessary
 validation activity. The task sequence must make dependencies explicit.
 
+How much work one task holds is governed by
+`core/work-sizing/references/work-sizing-contract.md`. Coverage rules above
+constrain the mapping, not the count: a task naming several criteria is
+well-formed, and a boundary between tasks must state what forces it.
+
 ## Traceability compatibility
 
 An older trio may lack criterion identifiers or task-to-criterion references.
