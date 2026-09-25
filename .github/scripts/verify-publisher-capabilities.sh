@@ -42,7 +42,31 @@ failed=0
 # Deriving it means no new marker to keep in sync, and a definition that binds
 # no GH_TOKEN has no publishing token to validate, which is itself a failure.
 publishing_token_id() {
-  sed -n 's/.*GH_TOKEN:[[:space:]]*${{[[:space:]]*steps\.\([A-Za-z0-9_-]*\)\.outputs\.token[[:space:]]*}}.*/\1/p' "$1" | head -1
+  awk '
+    # Comments are stripped before any matching. A comment naming a different,
+    # privileged token could otherwise redirect validation away from the token
+    # the publishing step consumes -- the same class of bypass as matching
+    # permission text anywhere in the file.
+    {
+      line = $0
+      sub(/[[:space:]]*#.*$/, "", line)
+    }
+    line ~ /^[[:space:]]*$/ { next }
+    { indent = match(line, /[^ ]/) - 1 }
+
+    # The binding must sit inside a step env: mapping. A GH_TOKEN mentioned in
+    # a run: script, a with: input, or prose is not what the runner exports.
+    in_env && indent <= env_indent { in_env = 0 }
+    line ~ /^[[:space:]]*env:[[:space:]]*$/ { in_env = 1; env_indent = indent; next }
+
+    in_env && line ~ /^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{[[:space:]]*steps\./ {
+      id = line
+      sub(/^.*steps\./, "", id)
+      sub(/\.outputs\.token.*$/, "", id)
+      print id
+      exit
+    }
+  ' "$1"
 }
 
 token_inputs() {

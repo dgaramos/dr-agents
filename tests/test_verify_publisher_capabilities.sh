@@ -161,6 +161,46 @@ run_case unbound
 grep -qF "binds no GH_TOKEN" <<<"$CASE_STDERR" ||
   fail "unbound: the failure must say the definition binds no GH_TOKEN; got: $CASE_STDERR"
 
+
+# --- dr-agents#449 re-review 2: a comment naming a different, privileged token
+# --- must not redirect validation away from the token the publishing step
+# --- consumes. Token selection reads only a step env: binding, with comments
+# --- stripped first.
+make_case misleading_comment "# publisher-targets: issues pull-requests
+# GH_TOKEN: \${{ steps.privileged.outputs.token }}
+$(token_step)
+          permission-issues: write
+      - name: Mint a privileged token
+        id: privileged
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: \${{ inputs.client_id }}
+          private-key: \${{ secrets.app_private_key }}
+          permission-issues: write
+          permission-pull-requests: write
+      - name: Publish
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+        run: true"
+run_case misleading_comment
+[[ "$CASE_STATUS" == 1 ]] ||
+  fail "misleading_comment: a commented GH_TOKEN redirected validation (exit $CASE_STATUS)"
+grep -qF "step 'app'" <<<"$CASE_STDERR" ||
+  fail "misleading_comment: validation must follow the env: binding, not the comment; got: $CASE_STDERR"
+
+# --- A GH_TOKEN mentioned in a run: script is not what the runner exports, so
+# --- it must not be read as the binding either.
+make_case run_mention "# publisher-targets: issues
+$(token_step)
+          permission-issues: write
+      - name: Publish
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+        run: echo \"GH_TOKEN: \${{ steps.other.outputs.token }}\""
+run_case run_mention
+[[ "$CASE_STATUS" == 0 ]] ||
+  fail "run_mention: a GH_TOKEN inside run: must not override the env: binding: $CASE_STDERR"
+
 # --- The repository's own publishers must satisfy the gate. ------------------
 bash "$script" "$root/.github/workflows" ||
   fail "catalog: the repository's own publisher definitions fail the capability gate"
