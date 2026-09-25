@@ -676,9 +676,34 @@ jq -e '.name == "cody-dr" and (.version | type == "string") and .skills == "./sk
 # and declared none; they loaded by Claude Code's convention-based discovery,
 # which is a platform behaviour this catalog does not control. `interface` stays
 # forbidden here: it is Codex presentation, not a component directory, and
-# verify-catalog-parity.sh compares only directory-valued keys for that reason.
-jq -e '.name == "claudio-dr" and (.version | type == "string") and .skills == "./skills/" and .agents == "./agents/" and (has("interface") | not)' \
-  plugins/claudio-dr/.claude-plugin/plugin.json >/dev/null
+# verify-catalog-parity.sh compares only content-valued keys for that reason.
+#
+# PR #452 review: Claude Code's manifest schema takes `agents` as an ARRAY of
+# `.md` file paths and rejects the Codex directory string with
+# `agents: Invalid input`, so the two hosts spell the same component
+# differently. The list is derived from the tree, because a hand-written one
+# passes today and goes stale the day an agent is added or renamed.
+jq -e '.name == "claudio-dr" and (.version | type == "string") and .skills == "./skills/" and (.agents | type == "array") and (has("interface") | not)' \
+  plugins/claudio-dr/.claude-plugin/plugin.json >/dev/null ||
+  { echo "manifest: Claudio manifest must declare name, version, skills dir, an agents ARRAY, and no interface" >&2; exit 1; }
+claudio_declared_agents="$(jq -r '.agents[]' plugins/claudio-dr/.claude-plugin/plugin.json | sort)"
+claudio_actual_agents="$(find plugins/claudio-dr/agents -maxdepth 1 -name '*.md' \
+  -exec basename {} \; | sed 's#^#./agents/#' | sort)"
+if [[ "$claudio_declared_agents" != "$claudio_actual_agents" ]]; then
+  echo "manifest: Claudio manifest agents do not match plugins/claudio-dr/agents/" >&2
+  diff <(printf '%s\n' "$claudio_declared_agents") <(printf '%s\n' "$claudio_actual_agents") >&2 || true
+  exit 1
+fi
+# The repository gate blessed an invalid manifest until this PR: bin/check was
+# green while `claude plugin validate` rejected the plugin. Run the host's own
+# validator when it is available so the shape cannot regress unnoticed.
+if command -v claude >/dev/null 2>&1; then
+  if ! claude_validate_out="$(claude plugin validate ./plugins/claudio-dr 2>&1)"; then
+    echo "manifest: native Claude plugin validation failed" >&2
+    printf '%s\n' "$claude_validate_out" >&2
+    exit 1
+  fi
+fi
 claudio_version="$(jq -r '.version' plugins/claudio-dr/.claude-plugin/plugin.json)"
 cody_version="$(jq -r '.version' plugins/cody-dr/.codex-plugin/plugin.json)"
 claudio_marketplace_version="$(jq -r '.plugins[] | select(.name == "claudio-dr") | .version' .claude-plugin/marketplace.json)"

@@ -25,13 +25,29 @@ failed=0
 claudio_manifest="$root/plugins/claudio-dr/.claude-plugin/plugin.json"
 cody_manifest="$root/plugins/cody-dr/.codex-plugin/plugin.json"
 
-# Component keys are the manifest entries whose value is a directory path.
+# Component keys are the manifest entries that point at bundled content.
 # Deriving them by shape rather than by name means a third component type is
 # covered the day it is introduced, with no list to update. Codex-only
 # presentation fields such as `interface` are objects, not paths, so they are
 # not components and are legitimately asymmetric.
+#
+# dr-agents#436 follow-up: the two hosts encode the same component differently.
+# Claude Code's manifest schema takes `agents` as an array of `.md` file paths
+# and rejects a directory string with `agents: Invalid input`, while Codex takes
+# the directory. Parity is about WHICH components an adapter declares, not about
+# how each host spells them, so a relative path and an array of relative paths
+# both count as one declaration. Restricting this to plain strings would make a
+# valid Claude manifest read as a missing component.
 component_keys() {
-  jq -r 'to_entries[] | select(.value | type == "string" and startswith("./")) | .key' "$1" | sort
+  jq -r '
+    def is_path: type == "string" and startswith("./");
+    to_entries[]
+    | select(
+        (.value | is_path)
+        or ((.value | type == "array") and (.value | length > 0) and (.value | all(is_path)))
+      )
+    | .key
+  ' "$1" | sort
 }
 
 for manifest in "$claudio_manifest" "$cody_manifest"; do

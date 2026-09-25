@@ -58,6 +58,36 @@ run_case "$d"
   fail "interface_ok: non-directory Codex fields must not read as components: $CASE_STDERR"
 echo "ok   ignores Codex-only fields that are not directory paths"
 
+# --- The same component spelled differently by each host --------------------
+# PR #452: Claude Code's schema takes `agents` as an ARRAY of `.md` paths and
+# rejects the Codex directory string outright. Both manifests still DECLARE
+# agents, so this is not an asymmetry -- comparing raw values instead of keys
+# would force one host or the other into an invalid manifest.
+readonly agents_array='{"name":"x","skills":"./skills/","agents":["./agents/a.md","./agents/b.md"]}'
+d="$(make_case array_shape "$agents_array" "$both" "review-pr" "review-pr")"
+run_case "$d"
+[[ "$CASE_STATUS" == 0 ]] ||
+  fail "array_shape: an array-valued component must count as declared: $CASE_STDERR"
+echo "ok   treats an array of paths as the same declaration as a directory"
+
+# An array-valued component declared by one adapter only is still an asymmetry.
+d="$(make_case array_gap "$agents_array" "$skills_only" "review-pr" "review-pr")"
+run_case "$d"
+[[ "$CASE_STATUS" != 0 ]] || fail "array_gap: an undeclared array component was accepted"
+[[ "$CASE_STDERR" == *agents* ]] ||
+  fail "array_gap: the message must name 'agents': $CASE_STDERR"
+echo "ok   still catches an array component missing from the other adapter"
+
+# Arrays that do not hold relative paths are not components. An empty array or
+# a list of plain strings is configuration, and reading it as a component would
+# resurrect the false asymmetry this gate exists to prevent.
+readonly non_path_arrays='{"name":"x","skills":"./skills/","agents":"./agents/","capabilities":[],"tags":["review","issues"]}'
+d="$(make_case non_path_arrays "$both" "$non_path_arrays" "review-pr" "review-pr")"
+run_case "$d"
+[[ "$CASE_STATUS" == 0 ]] ||
+  fail "non_path_arrays: empty or non-path arrays must not read as components: $CASE_STDERR"
+echo "ok   ignores arrays that do not hold relative paths"
+
 # --- The defect this exists for: an undeclared component --------------------
 d="$(make_case undeclared "$skills_only" "$both" "review-pr" "review-pr")"
 run_case "$d"
