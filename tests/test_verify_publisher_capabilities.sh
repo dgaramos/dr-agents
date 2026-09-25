@@ -49,6 +49,8 @@ $(token_step)
           permission-issues: write
           permission-pull-requests: write
       - name: Publish
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
         run: true"
 run_case granted
 [[ "$CASE_STATUS" == 0 ]] ||
@@ -61,6 +63,8 @@ $(token_step)
           permission-issues: write
           # permission-pull-requests: write
       - name: Publish
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
         run: true"
 run_case commented
 [[ "$CASE_STATUS" == 1 ]] || fail \
@@ -89,6 +93,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Publish
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
         run: true"
 run_case tokenless
 [[ "$CASE_STATUS" == 1 ]] ||
@@ -114,6 +120,46 @@ run_case unknown
   fail "unknown: an unrecognised target must fail, got $CASE_STATUS"
 [[ "$CASE_STDERR" == *"discussions"* ]] ||
   fail "unknown: stderr must name the target, got: $CASE_STDERR"
+
+
+# --- dr-agents#449 re-review: a permission on an UNRELATED App-token step must
+# --- not satisfy a target. A definition may mint more than one token for
+# --- different purposes -- reusable-publish-pr-metadata.yml mints a second,
+# --- Projects-scoped one -- and unioning them let a write permission the
+# --- publishing token does not hold make the gate pass. The same 403, one
+# --- indirection further out.
+make_case unrelated_token "# publisher-targets: issues pull-requests
+$(token_step)
+          permission-issues: write
+      - name: Mint an unrelated token
+        id: other
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: \${{ inputs.client_id }}
+          private-key: \${{ secrets.app_private_key }}
+          permission-pull-requests: write
+      - name: Publish
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+        run: true"
+run_case unrelated_token
+[[ "$CASE_STATUS" == 1 ]] ||
+  fail "unrelated_token: a permission on a non-publishing token satisfied the gate (exit $CASE_STATUS)"
+grep -qF "step 'app'" <<<"$CASE_STDERR" ||
+  fail "unrelated_token: the failure must name the publishing token step; got: $CASE_STDERR"
+
+# --- A definition that binds no GH_TOKEN has no publishing token to validate,
+# --- which is a failure rather than something to skip quietly.
+make_case unbound "# publisher-targets: issues
+$(token_step)
+          permission-issues: write
+      - name: Publish
+        run: true"
+run_case unbound
+[[ "$CASE_STATUS" == 1 ]] ||
+  fail "unbound: a definition binding no GH_TOKEN was accepted (exit $CASE_STATUS)"
+grep -qF "binds no GH_TOKEN" <<<"$CASE_STDERR" ||
+  fail "unbound: the failure must say the definition binds no GH_TOKEN; got: $CASE_STDERR"
 
 # --- The repository's own publishers must satisfy the gate. ------------------
 bash "$script" "$root/.github/workflows" ||
