@@ -86,3 +86,28 @@ is one of the two declarations being wrong, not a platform difference.
 
 Nothing verifies at run time that `inspect-change` in fact mutates nothing. The
 declaration is a statement the gate holds the catalog to, not a sandbox.
+
+## An agent covers what its skills reach
+
+```yaml
+---
+name: alpha-designer
+description: Alpha explores a design and publishes the result when authorized.
+skills:
+  - explore-design
+  - publish-design
+visibility: public
+effects: [publishes]
+gates: [explicit-authorization]
+---
+```
+
+`explore-design` is `read-only`; `publish-design` declares `publishes` with
+`explicit-authorization`. The agent reaches both, so it declares the wider of
+the two. Declaring `read-only` here — which the agent's own prose might
+plausibly suggest, since it only publishes when told to — would understate a
+reach it has.
+
+`read-only` and `none` do not propagate. They are floors: a read-only skill
+imposes nothing on an agent that also publishes, and forcing it to declare
+`read-only` alongside `publishes` would collide with the exclusivity rule.

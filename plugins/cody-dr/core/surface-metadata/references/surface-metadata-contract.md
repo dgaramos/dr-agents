@@ -77,6 +77,24 @@ Stated only in prose, the boundary holds exactly as long as every surface's text
 happens to say so; as a declared pair it fails the quality gate the moment one
 surface does not.
 
+## Reach
+
+<!-- bin/check anchor: "every reach a listed skill has, its agent declares" is a load-bearing phrase matched by bin/check. Do not reword without updating the corresponding grep assertion in bin/check. -->
+
+An agent reaches every skill it lists. Its declaration must cover them: every
+reach a listed skill has, its agent declares. An agent listing a publishing
+skill declares `publishes` and its gate, whatever the agent's own prose says.
+
+`read-only` and `none` are floors, not obligations. A read-only skill imposes
+nothing on an agent that also publishes, so they do not propagate; only the
+reaches that widen an agent's declaration do.
+
+A listed name that resolves to no skill at all is a typo, and fails. A name
+resolving to a core area is legitimate — core skills are not surfaces and carry
+no declarations — so its reach cannot be derived and is left to the agent's own
+declaration. That is a known gap in the derivation, not an exemption from the
+rule.
+
 ## Parity
 
 <!-- bin/check anchor: "Identity differs between adapters; behavior does not." is a load-bearing phrase matched by bin/check. Do not reword without updating the corresponding grep assertion in bin/check. -->

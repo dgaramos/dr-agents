@@ -1544,7 +1544,8 @@ for required_text in \
   'declares its maximum reach' \
   'requires explicit authorization for a specific act' \
   'A surface declaring `publishes` declares `explicit-authorization`' \
-  'Identity differs between adapters; behavior does not.'; do
+  'Identity differs between adapters; behavior does not.' \
+  'every reach a listed skill has, its agent declares'; do
   if ! grep -qF "$required_text" "$surface_metadata_contract"; then
     echo "surface-metadata: $surface_metadata_contract is missing required phrase: $required_text" >&2
     exit 1
@@ -1668,8 +1669,60 @@ while IFS= read -r adapter_surface; do
   fi
 done < <(surface_paths .)
 
+
+# An agent reaches every skill it lists, so its declaration must cover them. The
+# designer entrypoint declared `read-only` while listing the publishing
+# `design-and-author` skill, and passed this gate: per-surface validation reads
+# each file in isolation and cannot see that relationship. A human caught it in
+# review on dr-agents#446. This derives the relationship instead.
+#
+# `read-only` and `none` are floors, not obligations: a read-only skill imposes
+# nothing on an agent that also publishes, so they are excluded from the union.
+# The rule is therefore "every reach a listed skill has, its agent declares".
+surface_listed_skills() {
+  awk '
+    /^skills:/ { in_list = 1; next }
+    in_list && /^[[:space:]]+- / { sub(/^[[:space:]]+- /, ""); print; next }
+    in_list && /^[A-Za-z]/ { in_list = 0 }
+  ' "$1"
+}
+
+validate_agent_reach() {
+  local root="${1:-.}"
+  local agent adapter skill skill_file field declared value
+  for agent in "$root"/plugins/*/agents/*.md; do
+    [[ -f "$agent" ]] || continue
+    adapter="$(basename "$(dirname "$(dirname "$agent")")")"
+    while IFS= read -r skill; do
+      [[ -n "$skill" ]] || continue
+      skill_file="$root/plugins/$adapter/skills/$skill/SKILL.md"
+      if [[ ! -f "$skill_file" ]]; then
+        # A name that resolves to a core area is legitimate -- core skills are
+        # not surfaces and carry no declarations, so the reach cannot be
+        # derived for them and is left to the agent's own declaration. A name
+        # that resolves to nothing at all is a typo and must not pass quietly.
+        if [[ ! -f "$root/core/$skill/SKILL.md" && ! -f "$root/plugins/$adapter/core/$skill/SKILL.md" ]]; then
+          surface_report "$agent lists skill '$skill', which resolves to no adapter or core skill"
+        fi
+        continue
+      fi
+      for field in effects gates; do
+        declared="$(surface_field "$agent" "$field")"
+        while IFS= read -r value; do
+          [[ -n "$value" ]] || continue
+          [[ "$value" == "read-only" || "$value" == "none" ]] && continue
+          if ! surface_list "$declared" | grep -qx "$value"; then
+            surface_report "$agent declares $field without '$value', but reaches it through skill '$skill'"
+          fi
+        done < <(surface_list "$(surface_field "$skill_file" "$field")")
+      done
+    done < <(surface_listed_skills "$agent")
+  done
+}
+
 validate_surface_metadata .
 compare_surface_counterparts .
+validate_agent_reach .
 if [[ "$surface_metadata_failed" == "1" ]]; then
   exit 1
 fi

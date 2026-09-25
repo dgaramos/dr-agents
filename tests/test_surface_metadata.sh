@@ -174,4 +174,75 @@ output="$(run_validator "$d" 2>&1)"
   || { echo "FAIL: only the first violation was reported; got: $output" >&2; exit 1; }
 echo "ok   reports every violation, not merely the first"
 
+
+# --- an agent's declaration must cover every skill it reaches ---------------
+# dr-agents#446: the designer entrypoint declared read-only while listing the
+# publishing design-and-author skill, and the gate passed -- per-surface
+# validation reads each file in isolation and cannot see that relationship.
+# These fixtures hold the derived rule that closes it.
+agent_root() {
+  local dir="$tmp/$1"
+  mkdir -p "$dir/plugins/claudio-dr/agents" "$dir/plugins/claudio-dr/skills/publishing-skill"
+  write_surface "$dir/plugins/claudio-dr/skills/publishing-skill/SKILL.md" \
+    "name: publishing-skill" "description: d" "visibility: public" \
+    "effects: [publishes]" "gates: [explicit-authorization]"
+  printf '%s' "$dir"
+}
+
+write_agent() {
+  local path="$1" effects="$2" gates="$3" skill="$4"
+  mkdir -p "$(dirname "$path")"
+  { echo '---'; echo 'name: claudio-agent'; echo 'description: d';
+    echo 'skills:'; echo "  - $skill";
+    echo 'visibility: public'; echo "effects: $effects"; echo "gates: $gates";
+    echo '---'; echo; echo '# fixture'; } > "$path"
+}
+
+run_reach() {
+  surface_metadata_failed=0
+  validate_agent_reach "$1" 2>&1 || true
+  printf '%s' "$surface_metadata_failed" > "$1/.failed"
+}
+
+d="$(agent_root reach-understated)"
+write_agent "$d/plugins/claudio-dr/agents/claudio-agent.md" "[read-only]" "[none]" "publishing-skill"
+output="$(run_reach "$d" 2>&1)"
+[[ "$(< "$d/.failed")" == "1" ]] \
+  || { echo "FAIL: an agent understating a skill's reach was accepted" >&2; exit 1; }
+grep -qF "reaches it through skill 'publishing-skill'" <<<"$output" \
+  || { echo "FAIL: the message did not name the reaching skill; got: $output" >&2; exit 1; }
+echo "ok   rejects an agent declaring less reach than a skill it lists"
+
+d="$(agent_root reach-covered)"
+write_agent "$d/plugins/claudio-dr/agents/claudio-agent.md" \
+  "[publishes]" "[explicit-authorization]" "publishing-skill"
+run_reach "$d" >/dev/null
+[[ "$(< "$d/.failed")" == "0" ]] \
+  || { echo "FAIL: an agent covering its skill's reach was rejected" >&2; exit 1; }
+echo "ok   accepts an agent covering every reach it lists"
+
+# read-only and none are floors, not obligations: a read-only skill imposes
+# nothing on an agent that publishes. Without this the rule would force every
+# agent to declare read-only alongside its real effects, which the exclusivity
+# rule then rejects -- the two rules would contradict each other.
+d="$(agent_root reach-floor)"
+write_surface "$d/plugins/claudio-dr/skills/quiet-skill/SKILL.md" \
+  "name: quiet-skill" "description: d" "visibility: public" \
+  "effects: [read-only]" "gates: [none]"
+write_agent "$d/plugins/claudio-dr/agents/claudio-agent.md" \
+  "[publishes]" "[explicit-authorization]" "quiet-skill"
+run_reach "$d" >/dev/null
+[[ "$(< "$d/.failed")" == "0" ]] \
+  || { echo "FAIL: read-only and none must not be imposed on a publishing agent" >&2; exit 1; }
+echo "ok   treats read-only and none as floors, not obligations"
+
+d="$(agent_root reach-typo)"
+write_agent "$d/plugins/claudio-dr/agents/claudio-agent.md" "[read-only]" "[none]" "no-such-skill"
+output="$(run_reach "$d" 2>&1)"
+[[ "$(< "$d/.failed")" == "1" ]] \
+  || { echo "FAIL: an unresolvable skill name was accepted" >&2; exit 1; }
+grep -qF "resolves to no adapter or core skill" <<<"$output" \
+  || { echo "FAIL: the message did not name the unresolvable skill; got: $output" >&2; exit 1; }
+echo "ok   rejects a skills entry that resolves to nothing"
+
 echo "surface metadata tests passed"
