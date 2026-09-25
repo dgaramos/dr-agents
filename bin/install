@@ -95,17 +95,67 @@ cody_version() {
 }
 
 # Resolve the Claudio DR installation the Claude marketplace actually
-# registered, by reading the cache rather than synthesizing a path from the
-# catalog's own version. Synthesizing it makes a stale registered copy —
-# exactly the drift dr-agents#427 exists to surface — indistinguishable from no
-# installation at all. Prints the cache directory, or nothing when none exists.
+# registered. The authoritative record is Claude Code's own plugin state at
+# plugins/installed_plugins.json, which names the install path of
+# claudio-dr@dr-agents. Reading it matters twice over: synthesizing the path
+# from the catalog version makes a stale registered copy — exactly the drift
+# dr-agents#427 exists to surface — indistinguishable from no installation,
+# and scanning the cache directory instead lets an unregistered leftover win,
+# in an order that is not even version order (0.1.10 sorts before 0.1.9).
+# Prints the registered cache directory, or nothing when none is registered.
 registered_claudio_cache() {
   local claude_config="$1"
+  local state="${claude_config}/plugins/installed_plugins.json"
   local cache_root="${claude_config}/plugins/cache/dr-agents/claudio-dr"
-  local candidate newest=""
+
+  if [[ -f "${state}" ]]; then
+    local recorded=""
+    if command -v jq >/dev/null 2>&1; then
+      recorded="$(jq -r '
+        (.plugins["claudio-dr@dr-agents"] // [])
+        | (map(select(.scope == "user")) + .)
+        | map(.installPath // empty)
+        | first // empty
+      ' "${state}" 2>/dev/null || true)"
+    else
+      # Without jq, scan from the claudio-dr@dr-agents key onwards. The trim
+      # matters on a single-line state file, where an earlier plugin's
+      # installPath would otherwise match on the same line.
+      recorded="$(awk '
+        !seen {
+          key = index($0, "\"claudio-dr@dr-agents\"")
+          if (key == 0) next
+          seen = 1
+          $0 = substr($0, key)
+        }
+        match($0, /"installPath"[[:space:]]*:[[:space:]]*"[^"]*"/) {
+          field = substr($0, RSTART, RLENGTH)
+          sub(/^"installPath"[[:space:]]*:[[:space:]]*"/, "", field)
+          sub(/"$/, "", field)
+          print field
+          exit
+        }
+      ' "${state}" 2>/dev/null || true)"
+    fi
+    if [[ -n "${recorded}" && "${recorded}" != "null" ]]; then
+      printf '%s\n' "${recorded%/}"
+      return 0
+    fi
+  fi
+
+  # No plugin state to read: fall back to the cache, but pick the highest
+  # version rather than whatever the glob happens to list last.
+  local newest=""
+  local candidate
   for candidate in "${cache_root}"/*/; do
     [[ -f "${candidate}.claude-plugin/plugin.json" ]] || continue
-    newest="${candidate%/}"
+    candidate="${candidate%/}"
+    if [[ -z "${newest}" ]]; then
+      newest="${candidate}"
+    elif [[ "$(printf '%s\n%s\n' "$(basename "${newest}")" "$(basename "${candidate}")" \
+                | sort -V | tail -1)" == "$(basename "${candidate}")" ]]; then
+      newest="${candidate}"
+    fi
   done
   [[ -n "${newest}" ]] && printf '%s\n' "${newest}"
   return 0

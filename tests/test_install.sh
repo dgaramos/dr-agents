@@ -162,11 +162,26 @@ rm -rf "$claude_dir/agents"
 # migration exists to surface.
 # ---------------------------------------------------------------------------
 registered_cache="$claude_dir/plugins/cache/dr-agents/claudio-dr"
+plugin_state="$claude_dir/plugins/installed_plugins.json"
+[[ -f "$plugin_state" ]] \
+  || { echo "FAIL: --global left no Claude plugin state at $plugin_state" >&2; exit 1; }
+state_backup="$tmp/installed-plugins-backup.json"
+cp "$plugin_state" "$state_backup"
 stale_backup="$tmp/registered-cache-backup"
 mv "$registered_cache" "$stale_backup"
-mkdir -p "$registered_cache/0.0.1-stale/.claude-plugin"
-printf '{"name":"claudio-dr","version":"0.0.1-stale"}\n' \
-  > "$registered_cache/0.0.1-stale/.claude-plugin/plugin.json"
+
+# Record an installation in Claude's plugin state exactly as the CLI does.
+register_claudio() {
+  local version="$1"
+  mkdir -p "$registered_cache/$version/.claude-plugin"
+  printf '{"name":"claudio-dr","version":"%s"}\n' "$version" \
+    > "$registered_cache/$version/.claude-plugin/plugin.json"
+  jq -n --arg path "$registered_cache/$version" --arg version "$version" \
+    '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+    > "$plugin_state"
+}
+
+register_claudio 0.0.1-stale
 
 stale_status="$(run_install "$tmp" --status)"
 echo "$stale_status" | grep -qF "0.0.1-stale" \
@@ -178,8 +193,42 @@ if echo "$stale_status" | grep -qF "${registered_cache}/${claudio_ver}/"; then
   echo "FAIL: --status synthesized the cache path from the catalog version" >&2; exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# --status: the registered installation wins over an unregistered leftover
+#
+# Several cache directories can coexist. Reading whichever one the glob lists
+# last is not the registration, and the listing is not even version order:
+# 0.1.10 sorts lexically before 0.1.9, so a glob scan reports the older one.
+# The registered path in plugins/installed_plugins.json is the only record.
+# ---------------------------------------------------------------------------
+rm -rf "$registered_cache"
+mkdir -p "$registered_cache/0.1.9/.claude-plugin"
+printf '{"name":"claudio-dr","version":"0.1.9"}\n' \
+  > "$registered_cache/0.1.9/.claude-plugin/plugin.json"
+register_claudio 0.1.10
+
+multi_status="$(run_install "$tmp" --status)"
+echo "$multi_status" | grep -qF "claudio-dr  0.1.10  (${registered_cache}/0.1.10/)" \
+  || { echo "FAIL: --status did not report the registered cache 0.1.10; output: $multi_status" >&2; exit 1; }
+if echo "$multi_status" | grep -qF "${registered_cache}/0.1.9/"; then
+  echo "FAIL: --status reported an unregistered leftover cache over the registered one" >&2; exit 1
+fi
+
+# The other direction: with the same two caches present, registering the lower
+# version must report the lower one. Asserting only the higher version would
+# pass against any "newest cache wins" rule, which is still not the
+# registration.
+register_claudio 0.1.9
+lower_status="$(run_install "$tmp" --status)"
+echo "$lower_status" | grep -qF "claudio-dr  0.1.9  (${registered_cache}/0.1.9/)" \
+  || { echo "FAIL: --status did not report the registered cache 0.1.9; output: $lower_status" >&2; exit 1; }
+if echo "$lower_status" | grep -qF "${registered_cache}/0.1.10/"; then
+  echo "FAIL: --status preferred a higher unregistered cache over the registered one" >&2; exit 1
+fi
+
 rm -rf "$registered_cache"
 mv "$stale_backup" "$registered_cache"
+mv "$state_backup" "$plugin_state"
 
 # ---------------------------------------------------------------------------
 # --global: the claude CLI is a hard dependency of the marketplace route

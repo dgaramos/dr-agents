@@ -23,6 +23,13 @@ if [[ "${1:-}" == "plugin" && "${2:-}" == "install" && "${3:-}" == "claudio-dr@d
   mkdir -p "$(dirname "$destination")"
   rm -rf "$destination"
   cp -R "$source_dir" "$destination"
+  # Claude Code records the installation in its own plugin state; bin/install
+  # reads that state rather than guessing from the cache layout, so the fake
+  # must write it too.
+  mkdir -p "$claude_config/plugins"
+  jq -n --arg path "$destination" --arg version "$version" \
+    '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+    > "$claude_config/plugins/installed_plugins.json"
   exit 0
 fi
 
