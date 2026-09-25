@@ -92,6 +92,42 @@ pointer_content="$(< "$global_pointer")"
 run_install "$tmp" --global
 
 # ---------------------------------------------------------------------------
+# --global --force: refreshes both marketplace snapshots before installing
+#
+# Neither plugin CLI has a --force flag, so --force cannot be forwarded
+# verbatim. On this route it means "do not install from a cached snapshot":
+# without the refresh, `agents update --global --force` would re-register the
+# catalog as it stood before the pull it just performed. The codex refresh
+# only applies to Git marketplaces and fails for a local-path catalog; that
+# failure is a no-op, so the install must still complete.
+# ---------------------------------------------------------------------------
+: > "$claude_call_log"
+: > "$codex_call_log"
+force_global_output="$(run_install "$tmp" --global --force)"
+
+grep -qF "plugin marketplace update dr-agents" "$claude_call_log" \
+  || { echo "FAIL: --global --force did not refresh the Claude marketplace snapshot" >&2; exit 1; }
+grep -qF "plugin marketplace upgrade dr-agents" "$codex_call_log" \
+  || { echo "FAIL: --global --force did not refresh the Codex marketplace snapshot" >&2; exit 1; }
+grep -qF "plugin install claudio-dr@dr-agents" "$claude_call_log" \
+  || { echo "FAIL: --global --force did not install claudio-dr after the refresh" >&2; exit 1; }
+grep -qF "plugin add cody-dr@dr-agents" "$codex_call_log" \
+  || { echo "FAIL: --global --force did not install cody-dr after the refresh" >&2; exit 1; }
+echo "$force_global_output" | grep -q "nothing to refresh" \
+  || { echo "FAIL: --global --force did not report the Codex refresh as a no-op" >&2; exit 1; }
+echo "$force_global_output" | grep -q "Global install complete" \
+  || { echo "FAIL: --global --force did not complete; output: $force_global_output" >&2; exit 1; }
+
+# Without --force neither snapshot is refreshed: an ordinary re-install must
+# not pay for a catalog fetch it did not ask for.
+: > "$claude_call_log"
+: > "$codex_call_log"
+run_install "$tmp" --global >/dev/null
+if grep -qF "marketplace update" "$claude_call_log" || grep -qF "marketplace upgrade" "$codex_call_log"; then
+  echo "FAIL: --global without --force refreshed a marketplace snapshot" >&2; exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # --global: a pre-existing legacy direct copy is reported, not removed
 #
 # dr-agents#427. Conflict safety already left such a file alone, but silently:

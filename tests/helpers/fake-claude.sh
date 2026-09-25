@@ -13,6 +13,15 @@ if [[ "${1:-}" == "plugin" && "${2:-}" == "marketplace" && "${3:-}" == "add" ]];
   exit 0
 fi
 
+# `marketplace update` re-reads a configured marketplace from its source.
+# bin/install runs it under --force, where a stale snapshot would silently
+# install the catalog as it stood before the pull.
+if [[ "${1:-}" == "plugin" && "${2:-}" == "marketplace" && "${3:-}" == "update" ]]; then
+  [[ -f "$claude_config/fake-marketplace-root" ]] \
+    || { echo "fake claude: no marketplace to update" >&2; exit 1; }
+  exit 0
+fi
+
 # The Claude Code CLI spells this `install`, where Codex spells it `add`. The
 # divergence is the CLI's, not this catalog's; see tests/helpers/fake-codex.sh.
 if [[ "${1:-}" == "plugin" && "${2:-}" == "install" && "${3:-}" == "claudio-dr@dr-agents" ]]; then

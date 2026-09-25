@@ -68,6 +68,11 @@ Usage: bin/install [--force]
                     catalog source, printing a warning for each overwritten
                     file. Use 'agents update --global --force' to resolve
                     conflicts during an update without manual cp commands.
+                    With --global it also refreshes the dr-agents marketplace
+                    snapshot from source before installing, so neither plugin
+                    CLI can install from a stale copy of the catalog. Neither
+                    CLI takes a --force flag of its own; this refresh is the
+                    equivalent on that route.
 EOF
   exit 1
 }
@@ -747,6 +752,7 @@ mode_global() {
 
   if [[ "${FORCE:-0}" == "1" ]]; then
     echo "WARNING: --force is set; all conflicting files will be overwritten without error."
+    echo "         Marketplace snapshots are refreshed from source before installing."
     echo ""
   fi
 
@@ -759,6 +765,14 @@ mode_global() {
     exit 1
   fi
   claude plugin marketplace add "${REPO_DIR}"
+  # Neither CLI has a --force flag, so --force cannot be forwarded verbatim.
+  # What it means on the marketplace route is "do not trust the cached
+  # snapshot": refresh the catalog from source before installing, so the
+  # install cannot re-register a stale copy of a repository that `bin/update`
+  # just pulled.
+  if [[ "${FORCE:-0}" == "1" ]]; then
+    claude plugin marketplace update dr-agents
+  fi
   # Claude Code spells this `install` where Codex spells it `add`. The
   # divergence belongs to the two CLIs, not to this catalog.
   claude plugin install claudio-dr@dr-agents
@@ -775,6 +789,14 @@ mode_global() {
     exit 1
   fi
   codex plugin marketplace add "${REPO_DIR}"
+  # `codex plugin marketplace upgrade` refreshes Git marketplace snapshots
+  # only. A catalog registered by local path has no snapshot to refresh, and
+  # the command exits non-zero there — that is a no-op for this route, not an
+  # install failure, so it must not abort under `set -e`.
+  if [[ "${FORCE:-0}" == "1" ]]; then
+    codex plugin marketplace upgrade dr-agents \
+      || echo "  note: dr-agents is not a Git marketplace here; nothing to refresh"
+  fi
   codex plugin add cody-dr@dr-agents
 
   echo ""
