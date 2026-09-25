@@ -151,14 +151,23 @@ git clone https://github.com/dgaramos/dr-agents.git ~/dr-agents
 
 `bin/install --global` installs:
 
-- claudio-dr plugin to `~/.claude/`
+- claudio-dr as `claudio-dr@dr-agents` through the Claude Code marketplace
 - cody-dr as `cody-dr@dr-agents` through the Codex marketplace
 - `agents` CLI to `~/.local/bin/agents`
 
-The installer delegates Cody installation to `codex plugin`; it does not copy
-a second plugin tree into `~/.codex/plugins/cache/cody-dr/`. Re-running
-`agents update --global` refreshes the same marketplace registration Codex
-loads.
+The installer delegates each adapter to its own CLI — `claude plugin` and
+`codex plugin` — and copies no plugin tree into `~/.claude/` or
+`~/.codex/plugins/cache/cody-dr/`. Re-running `agents update --global`
+refreshes the same marketplace registrations the two tools load. Both CLIs are
+therefore required for a global install, including `bin/install --download`:
+the extracted release is registered as a local marketplace rather than copied
+into place, so there is no offline direct-copy path.
+
+A host installed before this change still carries a direct copy of Claudio DR
+under `~/.claude/`. The installer reports those paths and leaves them alone;
+removing them is a separate, deliberate step. Do not delete `~/.claude/skills/`
+wholesale — `skills/synced/` is Claude Code's own store and has nothing to do
+with this catalog.
 
 After this, the `agents` command is available system-wide — no direnv or
 catalog directory in `PATH` required. Ensure `~/.local/bin` is in your `PATH`

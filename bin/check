@@ -87,6 +87,7 @@ readonly required_paths=(
   "tests/test_smoke_find_issue_target.sh"
   "tests/test_stub_version_guard.sh"
   "tests/helpers/fake-codex.sh"
+  "tests/helpers/fake-claude.sh"
   "tests/test_publish_issue_comment.sh"
   "core/pr-review/SKILL.md"
   "core/pr-review/references/review-contract.md"

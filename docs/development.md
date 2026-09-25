@@ -19,7 +19,7 @@ and pushes to `main`.
 global and per-repo locations.
 
 ```bash
-# Set up claudio-dr in ~/.claude/, cody-dr@dr-agents through Codex, and the agents CLI:
+# Register claudio-dr@dr-agents and cody-dr@dr-agents, and install the agents CLI:
 bin/install --global
 
 # Apply claudio-dr to a specific repository, with a named profile:
@@ -48,9 +48,11 @@ the directory if needed) and marks it executable, so the `agents` command is
 available system-wide without requiring direnv or the catalog directory to be in
 `PATH`. `bin/update --global` and `bin/update --all` both delegate to
 `bin/install --global`, so `~/.local/bin/agents` stays in sync whenever you
-update. Cody DR is installed and refreshed through the `dr-agents` marketplace;
-the installer never maintains a parallel `~/.codex/plugins/cache/cody-dr/`
-copy.
+update. Both adapters are installed and refreshed through the `dr-agents`
+marketplace of their own CLI; the installer never maintains a parallel
+`~/.codex/plugins/cache/cody-dr/` or `~/.claude/` copy. Where a legacy direct
+Claudio copy already exists, `bin/install` and `bin/install --status` report
+its paths and leave it in place.
 
 `bin/install --status` reports whether `~/.local/bin/agents` is present
 alongside the claudio-dr and cody-dr version information.
