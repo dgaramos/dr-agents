@@ -294,10 +294,38 @@ fi
 # ---------------------------------------------------------------------------
 # --status: runs without error and reports both plugins
 # ---------------------------------------------------------------------------
-status_output="$(cd "$fake_repo" && HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" bash "$repository_root/bin/install" --status 2>&1)"
+status_output="$(run_install "$fake_repo" --status)"
 echo "$status_output" | grep -q "claudio-dr" || { echo "FAIL: status output missing claudio-dr" >&2; exit 1; }
 echo "$status_output" | grep -q "cody-dr"    || { echo "FAIL: status output missing cody-dr" >&2; exit 1; }
 echo "$status_output" | grep -q "agents"     || { echo "FAIL: status output missing agents" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# --status: report the registered Cody version, not a catalog/cache guess
+#
+# Both directions matter. The first rejects "last lexical cache wins" while
+# the second rejects "newest cache wins"; together they prove the status line
+# follows Codex's registration state.
+# ---------------------------------------------------------------------------
+for cached_version in 0.1.9 0.1.10; do
+  cached_manifest="$codex_dir/plugins/cache/dr-agents/cody-dr/$cached_version/.codex-plugin/plugin.json"
+  mkdir -p "$(dirname "$cached_manifest")"
+  printf '{"name":"cody-dr","version":"%s"}\n' "$cached_version" > "$cached_manifest"
+done
+
+registration_failures=0
+for registered_version in 0.1.10 0.1.9; do
+  printf '%s\n' "$registered_version" > "$codex_dir/fake-registered-cody-version"
+  registered_status="$(run_install "$fake_repo" --status)"
+  expected_line="  cody-dr     $registered_version  ($codex_dir/plugins/cache/dr-agents/cody-dr/$registered_version/)"
+  if ! grep -qF "$expected_line" <<< "$registered_status"; then
+    echo "FAIL: --status did not report registered Cody $registered_version; expected: $expected_line" >&2
+    registration_failures=$((registration_failures + 1))
+  fi
+done
+[[ "$registration_failures" -eq 0 ]] || exit 1
+
+# Restore the catalog registration for subsequent cases.
+printf '%s\n' "$cody_ver" > "$codex_dir/fake-registered-cody-version"
 
 # ---------------------------------------------------------------------------
 # no args: reports workflow check (no longer a usage error)

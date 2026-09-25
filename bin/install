@@ -867,7 +867,18 @@ mode_status() {
   global_claudio_cache="$(registered_claudio_cache "${claude_config}")"
   local global_claudio_manifest="${global_claudio_cache:-${claude_config}/plugins/cache/dr-agents/claudio-dr/${catalog_claudio_ver}}/.claude-plugin/plugin.json"
   global_claudio_cache="${global_claudio_cache:-${claude_config}/plugins/cache/dr-agents/claudio-dr}"
-  local global_cody_manifest="${codex_config}/plugins/cache/dr-agents/cody-dr/${catalog_cody_ver}/.codex-plugin/plugin.json"
+  local registered_cody_ver=""
+  local codex_plugins=""
+  if command -v codex >/dev/null 2>&1; then
+    codex_plugins="$(codex plugin list --json 2>/dev/null || true)"
+    if command -v jq >/dev/null 2>&1; then
+      registered_cody_ver="$(jq -r 'first(.installed[]? | select(.pluginId == "cody-dr@dr-agents" and .installed == true) | .version) // empty' <<< "${codex_plugins}" 2>/dev/null || true)"
+    else
+      registered_cody_ver="$(awk 'BEGIN { RS="\"pluginId\"" } /^[[:space:]]*:[[:space:]]*\"cody-dr@dr-agents\"/ { value=$0; sub(/^.*\"version\"[[:space:]]*:[[:space:]]*\"/, "", value); sub(/\".*$/, "", value); print value; exit }' <<< "${codex_plugins}")"
+    fi
+  fi
+  local global_cody_cache="${codex_config}/plugins/cache/dr-agents/cody-dr/${registered_cody_ver:-${catalog_cody_ver}}"
+  local global_cody_manifest="${global_cody_cache}/.codex-plugin/plugin.json"
   local local_claudio_manifest="${repo_root}/.claude/.claude-plugin/plugin.json"
 
   echo "dr-agents install status"
@@ -886,7 +897,7 @@ mode_status() {
 
   echo "Global:"
   echo "  claudio-dr  $(installed_version "${global_claudio_manifest}")  (${global_claudio_cache}/)"
-  echo "  cody-dr     $(installed_version "${global_cody_manifest}")  (${codex_config}/plugins/cache/dr-agents/cody-dr/${catalog_cody_ver}/)"
+  echo "  cody-dr     $(installed_version "${global_cody_manifest}")  (${global_cody_cache}/)"
   echo "  agents      ${agents_status}  (${agents_dest})"
   echo ""
   echo "Repo (${repo_root}):"
