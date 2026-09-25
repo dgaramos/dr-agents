@@ -147,6 +147,22 @@ publications. Inspect uncertain outcomes before retrying under any account.
 Neither App submits `REQUEST_CHANGES`. Findings are published as a `COMMENT`;
 whether they block merging is decided by a human reviewer.
 
+### Operations with no App route
+
+These are performed by an explicitly disclosed personal account, never by the
+App. They are recorded here so an agent knows before dispatching, rather than
+discovering it from a failure mid-task (dr-agents#447):
+
+- **Closing an issue.** The issue publisher takes no state input; there is no
+  App route. Close with `DR_PERSONAL_FALLBACK=1` and say so in the handoff.
+- **User-owned Project boards.** `user.projectV2` is not reachable with an App
+  token. The metadata publisher reports the step as skipped, not as a warning;
+  applying it is a disclosed personal step.
+
+A personal route is disclosed, not silent: the transcript must name the account
+and the reason, and the result must never be presented as the agent's own
+publication.
+
 ## Claudio DR publisher modes
 
 - `create-pr`: `.github/workflows/publish-claudio-pr.yml`

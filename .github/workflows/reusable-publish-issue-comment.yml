@@ -33,6 +33,12 @@
 # Consumers reach this through a thin workflow_dispatch stub; the stub is
 # irreducible because workflow_dispatch requires the workflow to exist on the
 # consumer's default branch.
+# publisher-targets: issues pull-requests
+# The target types this mode is dispatched against. bin/check asserts the
+# App token requests a write permission for each one: a mode declared for a
+# target it cannot authorize against is what produced the 403 in
+# dr-agents#447, and a presence check on the workflow file could not see it.
+
 name: Publish issue comment
 on:
   workflow_call:
@@ -164,6 +170,11 @@ jobs:
           # work without accumulating litter -- see the note in
           # .github/scripts/smoke-publishers-reap.sh.
           permission-issues: write
+          # A non-review comment on a pull request is served by the issue
+          # comments endpoint but authorized as a pull-request resource, so
+          # issues:write alone returns 403 there. The mode is used against both
+          # target types, so it requests both. dr-agents#447.
+          permission-pull-requests: write
 
       - name: Create and verify the comment
         id: comment

@@ -48,8 +48,17 @@ rm -f "$log"
 TEST_LOG="$log" PATH="$temp/bin:$PATH" GITHUB_REPOSITORY=octo/example \
   PR_NUMBER=12 BASE_BRANCH=main PROJECT_OWNER=octo PROJECT_NUMBER=7 \
   PROJECT_STATUS=Todo EXPECTED_AUTHOR='cody-dr[bot]' PUBLISHER_APP_SLUG=cody-dr \
-  bash "$root/.github/scripts/publish-pr-metadata.sh" 2>"$temp/warnings"
-grep -q 'Project pending' "$temp/warnings"
+  bash "$root/.github/scripts/publish-pr-metadata.sh" >"$temp/output" 2>"$temp/warnings"
+# dr-agents#447: a user-owned board is not reachable with an App token by the
+# profile's own decision, so the skip is an expected outcome and is reported on
+# stdout. Asserting it is ABSENT from stderr is the half that matters: as a
+# warning on every dispatch it was indistinguishable from a failure, and noise
+# that is always present is ignored when it finally means something.
+grep -q 'Project: skipped' "$temp/output"
+if grep -qi 'project' "$temp/warnings"; then
+  echo "an expected Project skip must not be reported as a warning" >&2
+  exit 1
+fi
 if grep -q -- '--project-owner' "$log"; then
   echo "Project calls must be skipped without a Project token" >&2
   exit 1

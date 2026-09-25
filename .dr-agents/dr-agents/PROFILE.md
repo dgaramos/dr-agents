@@ -27,6 +27,10 @@ those exact trios only; it does not authorize writing to the resolved repository
 - Metadata publisher: Cody `.github/workflows/publish-cody-pr-metadata.yml`;
   Claudio `.github/workflows/publish-claudio-pr-metadata.yml`
 
+Closing an issue and writing a user-owned Project board have no App route; both
+are disclosed personal steps. See `profiles/dr-agents.md` for the full list and
+the disclosure rule (dr-agents#447).
+
 Dispatch the matching App publisher first and verify its result. If it is
 unavailable or fails, an explicitly user-authorized authenticated personal
 account may apply the same metadata as a fallback. Verify every field and

@@ -52,6 +52,7 @@ readonly required_paths=(
   ".github/workflows/publish-cody-pr.yml"
   ".github/workflows/publish-claudio-pr.yml"
   ".github/scripts/publish-pr.sh"
+  ".github/scripts/verify-publisher-capabilities.sh"
   "core/pr-review/references/publication-routing-contract.md"
   "core/pr-review/scripts/select-publisher.sh"
   "core/pr-review/scripts/verify-publisher-dispatch.sh"
@@ -81,6 +82,7 @@ readonly required_paths=(
   ".github/scripts/smoke-publishers-assert.sh"
   ".github/scripts/smoke-publishers-reap.sh"
   "tests/test_publisher_smoke.sh"
+  "tests/test_verify_publisher_capabilities.sh"
   ".github/scripts/publication-outcome.sh"
   "tests/test_publication_outcomes.sh"
   ".github/scripts/smoke-find-issue-target.sh"
@@ -776,6 +778,7 @@ bash tests/test_adapter_commits.sh
 bash tests/test_attribution_hook.sh
 bash tests/test_publish_pr.sh
 bash tests/test_publish_review.sh
+bash tests/test_verify_publisher_capabilities.sh
 bash tests/test_install.sh
 bash tests/test_update.sh
 bash tests/test_install_download.sh
@@ -1719,6 +1722,14 @@ validate_agent_reach() {
     done < <(surface_listed_skills "$agent")
   done
 }
+
+# A publisher mode must be able to authorize against every target type it
+# declares. The verifier derives both sets from the workflow files -- declared
+# targets from the `# publisher-targets:` marker, granted permissions from the
+# App-token step's inputs -- so nothing here enumerates modes.
+if ! bash .github/scripts/verify-publisher-capabilities.sh .github/workflows; then
+  exit 1
+fi
 
 validate_surface_metadata .
 compare_surface_counterparts .
