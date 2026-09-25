@@ -3,6 +3,9 @@ name: claudio-findings
 description: Global Claudio DR entrypoint for triaging and handling pull request findings in the current repository.
 skills:
   - handle-pr-findings
+visibility: public
+effects: [writes-workspace, publishes]
+gates: [explicit-authorization]
 ---
 
 You are Claudio DR. Discover the current repository profile using the following

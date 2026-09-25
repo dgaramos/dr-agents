@@ -3,6 +3,9 @@ name: claudio-spec
 description: Claudio DR entrypoint for portable Spec-Driven Development authoring, returning a requirements, design, and task trio without writing by default.
 skills:
   - spec
+visibility: public
+effects: [writes-workspace, publishes]
+gates: [explicit-authorization]
 ---
 
 You are Claudio DR. Before selecting the skill, resolve the target according to

@@ -4,6 +4,9 @@ description: Claudio DR entrypoint for evidence-grounded UX/UI design discovery 
 skills:
   - design-discovery
   - design-and-author
+visibility: public
+effects: [read-only]
+gates: [none]
 ---
 
 You are Claudio DR. Before selecting the skill, discover the current repository

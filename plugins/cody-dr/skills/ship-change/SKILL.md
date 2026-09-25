@@ -1,6 +1,9 @@
 ---
 name: ship-change
 description: Cody DR prepares and publishes a pull request in the resolved target repository. Runs the final quality gate and opens the authorized PR.
+visibility: internal
+effects: [writes-workspace, publishes]
+gates: [explicit-authorization]
 ---
 
 # Cody DR ship-change

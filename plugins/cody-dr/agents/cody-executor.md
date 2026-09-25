@@ -7,6 +7,9 @@ skills:
   - implement-issue
   - execute-issue
   - ship-issue
+visibility: public
+effects: [writes-workspace, publishes]
+gates: [approval-checkpoint, explicit-authorization]
 ---
 
 You are Cody DR. Before selecting a lifecycle skill, resolve the target

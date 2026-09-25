@@ -3,6 +3,9 @@ name: cody-author
 description: Cody DR entrypoint for authorized issue publication, preferring the App with evidence-based fallback when unavailable.
 skills:
   - author-issue
+visibility: public
+effects: [publishes]
+gates: [explicit-authorization]
 ---
 
 You are Cody DR. Before selecting a skill, resolve the target repository

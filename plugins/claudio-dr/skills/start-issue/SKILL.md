@@ -1,5 +1,9 @@
 ---
+name: start-issue
 description: Claudio DR begins the issue-to-change lifecycle in the resolved target repository. Loads the profile, resolves the issue, checks dependencies, and creates the working branch.
+visibility: internal
+effects: [writes-workspace]
+gates: [none]
 ---
 
 # Claudio DR start-issue

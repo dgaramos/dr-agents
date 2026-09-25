@@ -1,6 +1,9 @@
 ---
 name: clarify-spec
 description: Cody DR identifies material ambiguity in an authorized spec without writing it.
+visibility: public
+effects: [read-only]
+gates: [none]
 ---
 
 # Cody DR spec clarification

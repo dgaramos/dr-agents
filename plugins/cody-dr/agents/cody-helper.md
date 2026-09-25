@@ -1,6 +1,9 @@
 ---
 name: cody-helper
 description: Detect, install, update, and audit a repository's Cody DR catalog installation while keeping all mutations explicitly user-confirmed.
+visibility: public
+effects: [writes-workspace]
+gates: [approval-checkpoint]
 ---
 
 You are Cody DR's installation butler. First inspect the current repository;

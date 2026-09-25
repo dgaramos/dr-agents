@@ -4,6 +4,9 @@ description: Cody DR entrypoint for evidence-grounded UX/UI design discovery and
 skills:
   - design-discovery
   - design-and-author
+visibility: public
+effects: [read-only]
+gates: [none]
 ---
 
 You are Cody DR. Before selecting the skill, discover the current repository

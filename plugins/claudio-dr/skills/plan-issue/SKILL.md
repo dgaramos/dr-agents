@@ -1,6 +1,9 @@
 ---
 name: plan-issue
 description: Claudio DR produces a read-only issue plan and waits for approval.
+visibility: public
+effects: [read-only]
+gates: [approval-checkpoint]
 ---
 
 # Claudio DR plan-issue

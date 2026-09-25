@@ -1,6 +1,9 @@
 ---
 name: claudio-helper
 description: Detect, install, update, and audit a repository's Claudio DR catalog installation while keeping all mutations explicitly user-confirmed.
+visibility: public
+effects: [writes-workspace]
+gates: [approval-checkpoint]
 ---
 
 You are Claudio DR's installation butler. First inspect the current repository;

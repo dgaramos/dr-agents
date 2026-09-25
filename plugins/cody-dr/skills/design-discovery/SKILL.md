@@ -1,6 +1,9 @@
 ---
 name: design-discovery
 description: Cody DR assesses UX/UI requests and produces a portable Design Brief without publishing or mutating project state.
+visibility: public
+effects: [read-only]
+gates: [none]
 ---
 
 # Cody DR design discovery

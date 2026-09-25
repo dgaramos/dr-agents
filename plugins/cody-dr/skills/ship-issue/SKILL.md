@@ -1,6 +1,9 @@
 ---
 name: ship-issue
 description: Cody DR validates and formally ships a completed implementation in the resolved target repository.
+visibility: internal
+effects: [writes-workspace, publishes]
+gates: [explicit-authorization]
 ---
 
 # Cody DR ship-issue
