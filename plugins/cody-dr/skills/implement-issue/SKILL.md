@@ -1,6 +1,9 @@
 ---
 name: implement-issue
 description: Cody DR implements the changes required by an issue on the working branch, running quality gates and committing in isolation.
+visibility: internal
+effects: [writes-workspace]
+gates: [none]
 ---
 
 # Cody DR implement-issue

@@ -1,6 +1,9 @@
 ---
 name: author-issue
 description: Cody DR drafts structured GitHub issues and publishes only when authorized, preferring its App with evidence-based fallback.
+visibility: public
+effects: [publishes]
+gates: [explicit-authorization]
 ---
 
 # Cody DR author-issue

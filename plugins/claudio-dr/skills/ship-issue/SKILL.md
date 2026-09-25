@@ -1,6 +1,9 @@
 ---
 name: ship-issue
 description: Claudio DR validates and formally ships a completed implementation in the resolved target repository.
+visibility: internal
+effects: [writes-workspace, publishes]
+gates: [explicit-authorization]
 ---
 
 # Claudio DR ship-issue

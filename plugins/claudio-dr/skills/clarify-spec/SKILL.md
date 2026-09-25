@@ -1,5 +1,9 @@
 ---
+name: clarify-spec
 description: Claudio DR identifies material ambiguity in an authorized spec without writing it.
+visibility: public
+effects: [read-only]
+gates: [none]
 ---
 
 # Claudio DR spec clarification

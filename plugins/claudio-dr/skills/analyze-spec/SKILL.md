@@ -1,5 +1,9 @@
 ---
+name: analyze-spec
 description: Claudio DR analyzes an authorized spec trio with evidence and without mutation.
+visibility: public
+effects: [read-only]
+gates: [none]
 ---
 
 # Claudio DR spec analysis

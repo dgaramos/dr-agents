@@ -1,6 +1,9 @@
 ---
 name: execute-issue
 description: Cody DR orchestrates an approved issue plan through formal shipping.
+visibility: public
+effects: [writes-workspace, publishes]
+gates: [approval-checkpoint, explicit-authorization]
 ---
 
 # Cody DR execute-issue

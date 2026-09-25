@@ -1,6 +1,9 @@
 ---
 name: handle-pr-findings
 description: Cody DR triages actionable pull request findings, applies valid in-scope fixes, validates them, and prepares or publishes thread updates only when explicitly authorized.
+visibility: public
+effects: [writes-workspace, publishes]
+gates: [explicit-authorization]
 ---
 
 # Cody DR findings

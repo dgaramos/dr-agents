@@ -1,6 +1,9 @@
 ---
 name: analyze-spec
 description: Cody DR analyzes an authorized spec trio with evidence and without mutation.
+visibility: public
+effects: [read-only]
+gates: [none]
 ---
 
 # Cody DR spec analysis

@@ -1,5 +1,9 @@
 ---
+name: execute-issue
 description: Claudio DR orchestrates an approved issue plan through formal shipping.
+visibility: public
+effects: [writes-workspace, publishes]
+gates: [approval-checkpoint, explicit-authorization]
 ---
 
 # Claudio DR execute-issue

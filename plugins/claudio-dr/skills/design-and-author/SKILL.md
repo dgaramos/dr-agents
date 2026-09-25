@@ -1,5 +1,9 @@
 ---
+name: design-and-author
 description: Claudio DR chains design discovery directly into issue authoring, passing the Design Brief as author-issue context without a separate manual invocation.
+visibility: public
+effects: [publishes]
+gates: [explicit-authorization]
 ---
 
 # Claudio DR design-and-author

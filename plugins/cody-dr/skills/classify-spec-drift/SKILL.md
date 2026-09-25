@@ -1,6 +1,9 @@
 ---
 name: classify-spec-drift
 description: Cody DR classifies authorized spec drift without mutation or publication.
+visibility: public
+effects: [read-only]
+gates: [none]
 ---
 
 # Cody DR spec drift

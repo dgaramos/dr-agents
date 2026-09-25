@@ -157,6 +157,9 @@ readonly required_paths=(
   "examples/generic-change-discipline.md"
   "core/work-sizing/references/work-sizing-contract.md"
   "examples/generic-work-sizing.md"
+  "core/surface-metadata/references/surface-metadata-contract.md"
+  "examples/generic-surface-metadata.md"
+  "tests/test_surface_metadata.sh"
   ".codex-plugin/marketplace.json"
   "plugins/cody-dr/.codex-plugin/plugin.json"
   "plugins/cody-dr/skills/review-pr/SKILL.md"
@@ -1530,6 +1533,199 @@ for consumer in \
     exit 1
   fi
 done
+
+# Surface metadata is a portable vocabulary every agent and skill declares about
+# itself: visibility, effects, and confirmation gates. The phrases below are the
+# load-bearing ones -- each names a value or a rule a surface is validated
+# against -- asserted individually so the failure names which one went missing.
+readonly surface_metadata_contract="core/surface-metadata/references/surface-metadata-contract.md"
+for required_text in \
+  'a lifecycle step another surface orchestrates' \
+  'declares its maximum reach' \
+  'requires explicit authorization for a specific act' \
+  'A surface declaring `publishes` declares `explicit-authorization`' \
+  'Identity differs between adapters; behavior does not.' \
+  'every reach a listed skill has, its agent declares'; do
+  if ! grep -qF "$required_text" "$surface_metadata_contract"; then
+    echo "surface-metadata: $surface_metadata_contract is missing required phrase: $required_text" >&2
+    exit 1
+  fi
+done
+
+# The surface set is DERIVED from the tree, never enumerated. A skill or agent
+# added without declarations must fail for being undeclared, not slip through
+# because a list in this file was not updated -- the failure mode this catalog
+# has already paid for more than once.
+surface_paths() {
+  local root="${1:-.}"
+  ls "$root"/plugins/*/skills/*/SKILL.md "$root"/plugins/*/agents/*.md 2>/dev/null || true
+}
+
+# Read one frontmatter field. Frontmatter is the block between the first `---`
+# and the next one; a field appearing later in the body is not a declaration.
+surface_field() {
+  awk -v key="$2" '
+    NR == 1 { if ($0 != "---") exit 0; next }
+    $0 == "---" { exit 0 }
+    index($0, key ":") == 1 { print substr($0, length(key) + 2); exit 0 }
+  ' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+# `effects` and `gates` are inline sequences: `[a, b]`. Emit one value per line.
+surface_list() {
+  printf '%s' "$1" | tr -d '[]' | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' || true
+}
+
+# Every violation is reported, not merely the first: one undeclared surface used
+# to hide every other one behind it, and a reviewer fixing them one gate run at
+# a time is the cost of stopping early.
+surface_metadata_failed=0
+surface_report() {
+  echo "surface-metadata: $*" >&2
+  surface_metadata_failed=1
+}
+
+validate_surface_metadata() {
+  local root="${1:-.}"
+  local surface field value item seen_exclusive count
+  while IFS= read -r surface; do
+    [[ -n "$surface" ]] || continue
+
+    for field in name description visibility; do
+      value="$(surface_field "$surface" "$field")"
+      if [[ -z "$value" ]]; then
+        surface_report "$surface is missing required field: $field"
+      fi
+    done
+
+    value="$(surface_field "$surface" visibility)"
+    if [[ -n "$value" && "$value" != "public" && "$value" != "internal" ]]; then
+      surface_report "$surface declares visibility: $value (expected public or internal)"
+    fi
+
+    for field in effects gates; do
+      value="$(surface_field "$surface" "$field")"
+      if [[ -z "$value" ]]; then
+        surface_report "$surface is missing required field: $field"
+        continue
+      fi
+      count=0
+      seen_exclusive=""
+      while IFS= read -r item; do
+        [[ -n "$item" ]] || continue
+        count=$((count + 1))
+        case "$field:$item" in
+          effects:read-only)          seen_exclusive="$item" ;;
+          effects:writes-workspace|effects:publishes) ;;
+          gates:none)                 seen_exclusive="$item" ;;
+          gates:approval-checkpoint|gates:explicit-authorization) ;;
+          *) surface_report "$surface declares $field: $item (not in the contract vocabulary)" ;;
+        esac
+      done < <(surface_list "$value")
+      if [[ -n "$seen_exclusive" && "$count" -gt 1 ]]; then
+        surface_report "$surface declares $field: $seen_exclusive together with other values; it is exclusive"
+      fi
+    done
+
+    # The publication boundary as a checked property rather than as prose.
+    if surface_list "$(surface_field "$surface" effects)" | grep -qx 'publishes'; then
+      if ! surface_list "$(surface_field "$surface" gates)" | grep -qx 'explicit-authorization'; then
+        surface_report "$surface declares publishes without explicit-authorization in gates"
+      fi
+    fi
+  done < <(surface_paths "$root")
+}
+
+# Parity runs AFTER per-surface validation so a malformed file is reported as
+# malformed rather than as a disagreement with its counterpart.
+compare_surface_counterparts() {
+  local root="${1:-.}"
+  local surface relative counterpart field a b
+  while IFS= read -r surface; do
+    [[ "$surface" == *"/plugins/claudio-dr/"* || "$surface" == "$root/plugins/claudio-dr/"* ]] || continue
+    relative="${surface#"$root"/plugins/claudio-dr/}"
+    counterpart="$root/plugins/cody-dr/${relative/claudio-/cody-}"
+    [[ -f "$counterpart" ]] || continue
+    for field in visibility effects gates; do
+      a="$(surface_field "$surface" "$field")"
+      b="$(surface_field "$counterpart" "$field")"
+      if [[ "$a" != "$b" ]]; then
+        surface_report "$surface and $counterpart disagree on $field ($a vs $b)"
+      fi
+    done
+  done < <(surface_paths "$root")
+}
+
+# The vocabulary must exist in exactly one portable file. Scoped to adapter
+# skills and agents BY GLOB and must stay that way: the generated plugin core
+# bundles are faithful copies of core/, so the sentence legitimately appears in
+# plugins/*/core/ too. Matching those would fail after the sync step and make a
+# correct sync look like a break -- the same trap the work-sizing guard records.
+readonly surface_metadata_unique='declares its maximum reach'
+while IFS= read -r adapter_surface; do
+  [[ -n "$adapter_surface" ]] || continue
+  if grep -qF "$surface_metadata_unique" "$adapter_surface"; then
+    surface_report "$adapter_surface restates the effects rule; reference $surface_metadata_contract by path instead"
+  fi
+done < <(surface_paths .)
+
+
+# An agent reaches every skill it lists, so its declaration must cover them. The
+# designer entrypoint declared `read-only` while listing the publishing
+# `design-and-author` skill, and passed this gate: per-surface validation reads
+# each file in isolation and cannot see that relationship. A human caught it in
+# review on dr-agents#446. This derives the relationship instead.
+#
+# `read-only` and `none` are floors, not obligations: a read-only skill imposes
+# nothing on an agent that also publishes, so they are excluded from the union.
+# The rule is therefore "every reach a listed skill has, its agent declares".
+surface_listed_skills() {
+  awk '
+    /^skills:/ { in_list = 1; next }
+    in_list && /^[[:space:]]+- / { sub(/^[[:space:]]+- /, ""); print; next }
+    in_list && /^[A-Za-z]/ { in_list = 0 }
+  ' "$1"
+}
+
+validate_agent_reach() {
+  local root="${1:-.}"
+  local agent adapter skill skill_file field declared value
+  for agent in "$root"/plugins/*/agents/*.md; do
+    [[ -f "$agent" ]] || continue
+    adapter="$(basename "$(dirname "$(dirname "$agent")")")"
+    while IFS= read -r skill; do
+      [[ -n "$skill" ]] || continue
+      skill_file="$root/plugins/$adapter/skills/$skill/SKILL.md"
+      if [[ ! -f "$skill_file" ]]; then
+        # A name that resolves to a core area is legitimate -- core skills are
+        # not surfaces and carry no declarations, so the reach cannot be
+        # derived for them and is left to the agent's own declaration. A name
+        # that resolves to nothing at all is a typo and must not pass quietly.
+        if [[ ! -f "$root/core/$skill/SKILL.md" && ! -f "$root/plugins/$adapter/core/$skill/SKILL.md" ]]; then
+          surface_report "$agent lists skill '$skill', which resolves to no adapter or core skill"
+        fi
+        continue
+      fi
+      for field in effects gates; do
+        declared="$(surface_field "$agent" "$field")"
+        while IFS= read -r value; do
+          [[ -n "$value" ]] || continue
+          [[ "$value" == "read-only" || "$value" == "none" ]] && continue
+          if ! surface_list "$declared" | grep -qx "$value"; then
+            surface_report "$agent declares $field without '$value', but reaches it through skill '$skill'"
+          fi
+        done < <(surface_list "$(surface_field "$skill_file" "$field")")
+      done
+    done < <(surface_listed_skills "$agent")
+  done
+}
+
+validate_surface_metadata .
+compare_surface_counterparts .
+validate_agent_reach .
+if [[ "$surface_metadata_failed" == "1" ]]; then
+  exit 1
+fi
 
 # Core bundles belong only at each plugin root and must be generated from the
 # canonical core directory. Skills must not grow their own contract copies.

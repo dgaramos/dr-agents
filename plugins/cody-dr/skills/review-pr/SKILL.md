@@ -1,6 +1,9 @@
 ---
 name: review-pr
 description: Cody DR reviews an explicit pull request, branch, commit range, or local diff with evidence-first findings and incremental re-review. Use for manual PR review or verifying resolved review findings with an optional project profile.
+visibility: public
+effects: [writes-workspace, publishes]
+gates: [explicit-authorization]
 ---
 
 # Cody DR review

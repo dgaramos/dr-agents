@@ -1,6 +1,9 @@
 ---
 name: plan-implementation
 description: Cody DR creates and prints a read-only, test-first implementation plan for an explicit issue without requesting confirmation or editing project files.
+visibility: internal
+effects: [read-only]
+gates: [none]
 ---
 
 # Cody DR plan-implementation
