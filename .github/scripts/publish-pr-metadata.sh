@@ -43,7 +43,12 @@ if [[ -n "${PROJECT_OWNER:-}${PROJECT_NUMBER:-}${PROJECT_STATUS:-}" ]]; then
   if [[ -z "${PROJECT_OWNER:-}" || -z "${PROJECT_NUMBER:-}" || -z "${PROJECT_STATUS:-}" ]]; then
     echo "WARNING: project owner, number, and status must be supplied together — skipping Project step" >&2
   elif [[ -z "${PROJECT_GH_TOKEN:-}" ]]; then
-    echo "WARNING: Project pending; no organization Projects token is available. Use the authorized local gh account for user-owned Projects." >&2
+    # A user-owned (user.projectV2) board is not reachable with an App token,
+    # by the profile's own decision -- it is a disclosed personal step. Reporting
+    # that as a WARNING made an expected outcome indistinguishable from a
+    # failure on every dispatch, and noise that is always present is noise that
+    # is ignored when it matters. dr-agents#447.
+    echo "Project: skipped (no Projects token; user-owned boards are a disclosed personal step -- see the profile)"
   else
     project_args=(
       --repo "$GITHUB_REPOSITORY"

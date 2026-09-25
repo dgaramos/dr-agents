@@ -1,6 +1,12 @@
 # Central publisher definition for #260. Consumers reach this through a thin
 # workflow_dispatch stub; the stub is irreducible because workflow_dispatch
 # requires the workflow to exist on the consumer's default branch.
+# publisher-targets: pull-requests
+# The target types this mode is dispatched against. bin/check asserts the
+# App token requests a write permission for each one: a mode declared for a
+# target it cannot authorize against is what produced the 403 in
+# dr-agents#447, and a presence check on the workflow file could not see it.
+
 name: Publish pull request
 on:
   workflow_call:
