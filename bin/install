@@ -94,6 +94,23 @@ cody_version() {
   fi
 }
 
+# Resolve the Claudio DR installation the Claude marketplace actually
+# registered, by reading the cache rather than synthesizing a path from the
+# catalog's own version. Synthesizing it makes a stale registered copy —
+# exactly the drift dr-agents#427 exists to surface — indistinguishable from no
+# installation at all. Prints the cache directory, or nothing when none exists.
+registered_claudio_cache() {
+  local claude_config="$1"
+  local cache_root="${claude_config}/plugins/cache/dr-agents/claudio-dr"
+  local candidate newest=""
+  for candidate in "${cache_root}"/*/; do
+    [[ -f "${candidate}.claude-plugin/plugin.json" ]] || continue
+    newest="${candidate%/}"
+  done
+  [[ -n "${newest}" ]] && printf '%s\n' "${newest}"
+  return 0
+}
+
 # Return the version string embedded in an already-installed plugin.json, or
 # "unknown" when the file is absent or unparseable.
 installed_version() {
@@ -796,8 +813,10 @@ mode_status() {
 
   local codex_config="${CODEX_CONFIG_DIR:-${HOME}/.codex}"
   local claude_config="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
-  local global_claudio_cache="${claude_config}/plugins/cache/dr-agents/claudio-dr/${catalog_claudio_ver}"
-  local global_claudio_manifest="${global_claudio_cache}/.claude-plugin/plugin.json"
+  local global_claudio_cache
+  global_claudio_cache="$(registered_claudio_cache "${claude_config}")"
+  local global_claudio_manifest="${global_claudio_cache:-${claude_config}/plugins/cache/dr-agents/claudio-dr/${catalog_claudio_ver}}/.claude-plugin/plugin.json"
+  global_claudio_cache="${global_claudio_cache:-${claude_config}/plugins/cache/dr-agents/claudio-dr}"
   local global_cody_manifest="${codex_config}/plugins/cache/dr-agents/cody-dr/${catalog_cody_ver}/.codex-plugin/plugin.json"
   local local_claudio_manifest="${repo_root}/.claude/.claude-plugin/plugin.json"
 

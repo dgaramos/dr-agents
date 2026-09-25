@@ -155,6 +155,33 @@ fi
 rm -rf "$claude_dir/agents"
 
 # ---------------------------------------------------------------------------
+# --status: an outdated registered version is reported as that version
+#
+# Synthesizing the cache path from the catalog version makes a stale registered
+# copy indistinguishable from no installation, which is the exact drift this
+# migration exists to surface.
+# ---------------------------------------------------------------------------
+registered_cache="$claude_dir/plugins/cache/dr-agents/claudio-dr"
+stale_backup="$tmp/registered-cache-backup"
+mv "$registered_cache" "$stale_backup"
+mkdir -p "$registered_cache/0.0.1-stale/.claude-plugin"
+printf '{"name":"claudio-dr","version":"0.0.1-stale"}\n' \
+  > "$registered_cache/0.0.1-stale/.claude-plugin/plugin.json"
+
+stale_status="$(run_install "$tmp" --status)"
+echo "$stale_status" | grep -qF "0.0.1-stale" \
+  || { echo "FAIL: --status did not report the stale registered version; output: $stale_status" >&2; exit 1; }
+if echo "$stale_status" | grep -qE "^ +claudio-dr +not installed +\\(${registered_cache}"; then
+  echo "FAIL: --status reported a stale registered install as not installed" >&2; exit 1
+fi
+if echo "$stale_status" | grep -qF "${registered_cache}/${claudio_ver}/"; then
+  echo "FAIL: --status synthesized the cache path from the catalog version" >&2; exit 1
+fi
+
+rm -rf "$registered_cache"
+mv "$stale_backup" "$registered_cache"
+
+# ---------------------------------------------------------------------------
 # --global: the claude CLI is a hard dependency of the marketplace route
 #
 # The canonical route runs through `claude plugin`; with no such binary the
