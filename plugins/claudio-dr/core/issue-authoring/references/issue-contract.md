@@ -82,8 +82,10 @@ Do not publish until the user explicitly authorizes it.
 Every issue draft must include:
 
 - **Context**: the concrete problem or gap being addressed; one or two sentences.
-- **What to do**: the minimal set of actions needed to close the issue; use a
-  short bulleted list.
+- **What to do**: the actions needed to close the issue, sized as one unit of
+  work per `core/work-sizing/references/work-sizing-contract.md`; use a short
+  bulleted list. Minimal means no action that is not needed, not the smallest
+  piece that closes.
 - **Expected result**: what the system looks like after the issue is resolved.
 - **Acceptance criteria**: a checklist of verifiable conditions; each item is
   falsifiable on its own. Phrase as: "Given …, when …, then …".
