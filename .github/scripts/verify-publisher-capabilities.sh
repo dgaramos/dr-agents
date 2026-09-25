@@ -41,12 +41,24 @@ failed=0
 # The step id bound to GH_TOKEN is the token the publishing step consumes.
 # Deriving it means no new marker to keep in sync, and a definition that binds
 # no GH_TOKEN has no publishing token to validate, which is itself a failure.
-publishing_token_id() {
+# Every step that exports GH_TOKEN acts as the App against the forge, so every
+# such binding must resolve to an adequately scoped token -- not merely the
+# first one found.
+#
+# Selecting a single binding was the defect that kept moving: matched anywhere
+# in the file, then in any App-token step, then by the first env: binding. Each
+# narrowing left a way to point validation at a token the publishing step does
+# not consume. Quantifying over every binding removes the selection instead of
+# narrowing it, and is the stronger property regardless: a definition where any
+# GH_TOKEN-exporting step is under-scoped is a definition that can 403.
+#
+# PROJECT_GH_TOKEN and other suffixed names are deliberately not bindings of
+# GH_TOKEN; the key is anchored so they are not matched.
+publishing_token_ids() {
   awk '
     # Comments are stripped before any matching. A comment naming a different,
-    # privileged token could otherwise redirect validation away from the token
-    # the publishing step consumes -- the same class of bypass as matching
-    # permission text anywhere in the file.
+    # privileged token could otherwise redirect validation away from a token a
+    # step actually consumes.
     {
       line = $0
       sub(/[[:space:]]*#.*$/, "", line)
@@ -63,8 +75,7 @@ publishing_token_id() {
       id = line
       sub(/^.*steps\./, "", id)
       sub(/\.outputs\.token.*$/, "", id)
-      print id
-      exit
+      if (!(id in seen)) { seen[id] = 1; print id }
     }
   ' "$1"
 }
@@ -142,30 +153,32 @@ for definition in "${definitions[@]}"; do
     continue
   fi
 
-  token_id="$(publishing_token_id "$definition")"
-  if [[ -z "$token_id" ]]; then
+  token_ids="$(publishing_token_ids "$definition")"
+  if [[ -z "$token_ids" ]]; then
     echo "publisher-capability: $definition declares targets but binds no GH_TOKEN to an App-token step" >&2
     failed=1
     continue
   fi
 
-  granted="$(token_inputs "$definition" "$token_id")"
-  if [[ -z "$granted" ]]; then
-    echo "publisher-capability: $definition binds GH_TOKEN to step '$token_id', which is not an actions/create-github-app-token step with inputs" >&2
-    failed=1
-    continue
-  fi
-
-  for target in $declared_targets; do
-    case "$target" in
-      issues)        required_permission="permission-issues: write" ;;
-      pull-requests) required_permission="permission-pull-requests: write" ;;
-    esac
-    if ! printf '%s\n' "$granted" | grep -qxF "$required_permission"; then
-      echo "publisher-capability: $definition is dispatched against $target but its publishing token (step '$token_id') does not request '$required_permission'" >&2
+  while IFS= read -r token_id; do
+    [[ -n "$token_id" ]] || continue
+    granted="$(token_inputs "$definition" "$token_id")"
+    if [[ -z "$granted" ]]; then
+      echo "publisher-capability: $definition binds GH_TOKEN to step '$token_id', which is not an actions/create-github-app-token step with inputs" >&2
       failed=1
+      continue
     fi
-  done
+    for target in $declared_targets; do
+      case "$target" in
+        issues)        required_permission="permission-issues: write" ;;
+        pull-requests) required_permission="permission-pull-requests: write" ;;
+      esac
+      if ! printf '%s\n' "$granted" | grep -qxF "$required_permission"; then
+        echo "publisher-capability: $definition is dispatched against $target but its publishing token (step '$token_id') does not request '$required_permission'" >&2
+        failed=1
+      fi
+    done
+  done <<< "$token_ids"
 done
 
 exit "$failed"

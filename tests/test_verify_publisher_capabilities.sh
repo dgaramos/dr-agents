@@ -201,6 +201,51 @@ run_case run_mention
 [[ "$CASE_STATUS" == 0 ]] ||
   fail "run_mention: a GH_TOKEN inside run: must not override the env: binding: $CASE_STDERR"
 
+
+# --- dr-agents#449 re-review 3: an EARLIER authenticated step must not absorb
+# --- validation. Selecting one binding is what kept failing -- anywhere in the
+# --- file, then any token step, then the first env: binding. Every GH_TOKEN
+# --- binding is now validated, so there is no selection left to mislead.
+make_case earlier_binding "# publisher-targets: issues pull-requests
+$(token_step)
+          permission-issues: write
+      - name: Mint a privileged token
+        id: privileged
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: \${{ inputs.client_id }}
+          private-key: \${{ secrets.app_private_key }}
+          permission-issues: write
+          permission-pull-requests: write
+      - name: An earlier authenticated step
+        env:
+          GH_TOKEN: \${{ steps.privileged.outputs.token }}
+        run: true
+      - name: Publish
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+        run: true"
+run_case earlier_binding
+[[ "$CASE_STATUS" == 1 ]] ||
+  fail "earlier_binding: an earlier privileged binding absorbed validation (exit $CASE_STATUS)"
+grep -qF "step 'app'" <<<"$CASE_STDERR" ||
+  fail "earlier_binding: the under-scoped binding must be named; got: $CASE_STDERR"
+
+# --- PROJECT_GH_TOKEN and other suffixed names are not GH_TOKEN bindings. The
+# --- real reusable-publish-pr-metadata.yml exports both, so a loose key match
+# --- would validate a Projects-scoped token as if it published.
+make_case suffixed_key "# publisher-targets: issues
+$(token_step)
+          permission-issues: write
+      - name: Publish
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          PROJECT_GH_TOKEN: \${{ steps.absent.outputs.token }}
+        run: true"
+run_case suffixed_key
+[[ "$CASE_STATUS" == 0 ]] ||
+  fail "suffixed_key: PROJECT_GH_TOKEN must not be read as a GH_TOKEN binding: $CASE_STDERR"
+
 # --- The repository's own publishers must satisfy the gate. ------------------
 bash "$script" "$root/.github/workflows" ||
   fail "catalog: the repository's own publisher definitions fail the capability gate"
