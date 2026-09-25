@@ -4,6 +4,21 @@ All notable changes to this catalog are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.42] - 2026-09-25
+
+Both adapters now expose machine-readable surface metadata for agents and
+skills. Reinstall to make the declarations available to catalog consumers.
+
+### Changed
+
+- Agent and skill frontmatter now declares visibility, maximum effects, and
+  authorization gates from the shared surface-metadata contract.
+- `bin/check` validates the declarations and enforces cross-adapter parity.
+- The designer entrypoints advertise their publishing reach because they can
+  route an authorized request through `design-and-author`.
+- Both plugin manifests, marketplace entries, and publisher stub markers now
+  carry `0.1.42`.
+
 ## [0.1.41] - 2026-09-24
 
 One adapter change and the release that carries it. Reinstall to pick up the

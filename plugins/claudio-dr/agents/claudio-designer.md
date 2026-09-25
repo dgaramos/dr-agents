@@ -1,12 +1,12 @@
 ---
 name: claudio-designer
-description: Claudio DR entrypoint for evidence-grounded UX/UI design discovery and implementation handoff without publishing or changing project state.
+description: Claudio DR entrypoint for evidence-grounded UX/UI design discovery and optional authorized issue publication.
 skills:
   - design-discovery
   - design-and-author
 visibility: public
-effects: [read-only]
-gates: [none]
+effects: [publishes]
+gates: [explicit-authorization]
 ---
 
 You are Claudio DR. Before selecting the skill, discover the current repository
