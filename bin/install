@@ -3,7 +3,7 @@
 #
 # Modes:
 #   (no args)             check workflow presence and drift in CWD .github/workflows/
-#   --global              install claudio-dr to ~/.claude/ and register cody-dr through Codex
+#   --global              register claudio-dr and cody-dr through their marketplaces
 #   --repo [--profile N]  install to .claude/ in CWD; optionally apply named profile overrides
 #   --status              report what is currently installed globally and per-repo in CWD
 #   --workflows           install managed workflow stubs to CWD .github/workflows/
@@ -38,8 +38,10 @@ Usage: bin/install [--force]
                     core/ file vendored at the repository root, by name and
                     state ('identical'/'diverged'), and exits non-zero: nothing
                     installs or runs such copies. No files are written.
-  --global          Install claudio-dr plugin to ~/.claude/ and install cody-dr
-                    from this catalog's dr-agents Codex marketplace.
+  --global          Install claudio-dr from this catalog's dr-agents Claude Code
+                    marketplace and cody-dr from its dr-agents Codex
+                    marketplace. No plugin tree is copied into ~/.claude/ or
+                    ~/.codex/ directly.
   --repo            Install claudio-dr plugin to .clone/ in the current repo.
                     Combine with --profile <name> to apply profile-specific
                     overrides from profiles/<name>.md.
@@ -90,6 +92,73 @@ cody_version() {
   else
     grep '"version"' "${manifest}" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
   fi
+}
+
+# Resolve the Claudio DR installation the Claude marketplace actually
+# registered. The authoritative record is Claude Code's own plugin state at
+# plugins/installed_plugins.json, which names the install path of
+# claudio-dr@dr-agents. Reading it matters twice over: synthesizing the path
+# from the catalog version makes a stale registered copy — exactly the drift
+# dr-agents#427 exists to surface — indistinguishable from no installation,
+# and scanning the cache directory instead lets an unregistered leftover win,
+# in an order that is not even version order (0.1.10 sorts before 0.1.9).
+# Prints the registered cache directory, or nothing when none is registered.
+registered_claudio_cache() {
+  local claude_config="$1"
+  local state="${claude_config}/plugins/installed_plugins.json"
+  local cache_root="${claude_config}/plugins/cache/dr-agents/claudio-dr"
+
+  if [[ -f "${state}" ]]; then
+    local recorded=""
+    if command -v jq >/dev/null 2>&1; then
+      recorded="$(jq -r '
+        (.plugins["claudio-dr@dr-agents"] // [])
+        | (map(select(.scope == "user")) + .)
+        | map(.installPath // empty)
+        | first // empty
+      ' "${state}" 2>/dev/null || true)"
+    else
+      # Without jq, scan from the claudio-dr@dr-agents key onwards. The trim
+      # matters on a single-line state file, where an earlier plugin's
+      # installPath would otherwise match on the same line.
+      recorded="$(awk '
+        !seen {
+          key = index($0, "\"claudio-dr@dr-agents\"")
+          if (key == 0) next
+          seen = 1
+          $0 = substr($0, key)
+        }
+        match($0, /"installPath"[[:space:]]*:[[:space:]]*"[^"]*"/) {
+          field = substr($0, RSTART, RLENGTH)
+          sub(/^"installPath"[[:space:]]*:[[:space:]]*"/, "", field)
+          sub(/"$/, "", field)
+          print field
+          exit
+        }
+      ' "${state}" 2>/dev/null || true)"
+    fi
+    if [[ -n "${recorded}" && "${recorded}" != "null" ]]; then
+      printf '%s\n' "${recorded%/}"
+      return 0
+    fi
+  fi
+
+  # No plugin state to read: fall back to the cache, but pick the highest
+  # version rather than whatever the glob happens to list last.
+  local newest=""
+  local candidate
+  for candidate in "${cache_root}"/*/; do
+    [[ -f "${candidate}.claude-plugin/plugin.json" ]] || continue
+    candidate="${candidate%/}"
+    if [[ -z "${newest}" ]]; then
+      newest="${candidate}"
+    elif [[ "$(printf '%s\n%s\n' "$(basename "${newest}")" "$(basename "${candidate}")" \
+                | sort -V | tail -1)" == "$(basename "${candidate}")" ]]; then
+      newest="${candidate}"
+    fi
+  done
+  [[ -n "${newest}" ]] && printf '%s\n' "${newest}"
+  return 0
 }
 
 # Return the version string embedded in an already-installed plugin.json, or
@@ -274,6 +343,7 @@ _install_from_extracted() {
   REPO_DIR="${extracted_dir}" \
     HOME="${HOME}" \
     CODEX_CONFIG_DIR="${CODEX_CONFIG_DIR:-${HOME}/.codex}" \
+    CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}" \
     bash "${extracted_dir}/bin/install" --global
 }
 
@@ -600,18 +670,76 @@ mode_install_workflows() {
   echo "Workflow install complete (dispatch stubs only; publication runs from the catalog)."
 }
 
+# Report — never remove — a legacy direct Claudio payload copy.
+#
+# Before dr-agents#427, `--global` copied plugins/claudio-dr straight into
+# ~/.claude/, in parallel with the marketplace registration Claude Code
+# actually loads. Hosts installed before that change still carry the copy, and
+# every one of its agent and skill names collides with the registered copy, so
+# the two drift the moment only one is refreshed.
+#
+# This reports the copy and stops there. Removal is a separate, explicitly
+# confirmed action: an installer that deletes files in a directory it no longer
+# owns is not one anybody should trust. For the same reason no payload
+# directory is ever named as a whole: ~/.claude/agents/ and ~/.claude/skills/
+# also hold the user's own agents and Claude Code's synced-skills store. Only
+# entries carrying a name this catalog owns are reported.
+report_legacy_claudio_copy() {
+  local claude_config="$1"
+
+  # Derived from the plugin tree rather than hand-listed: a directory added to
+  # plugins/claudio-dr/ later is a directory an old install also copied, and a
+  # fixed list would stop naming it the day that happens.
+  local legacy_paths=()
+  [[ -f "${claude_config}/.claude-plugin/plugin.json" ]] \
+    && legacy_paths+=("${claude_config}/.claude-plugin/plugin.json")
+  local entry name child child_name
+  for entry in "${REPO_DIR}"/plugins/claudio-dr/*/; do
+    [[ -d "$entry" ]] || continue
+    name="$(basename "$entry")"
+    # workflows/ is installed only by --workflows and was never part of the
+    # direct copy.
+    [[ "$name" == "workflows" ]] && continue
+    # Never name a payload directory itself: the existence of ~/.claude/agents
+    # proves nothing about who wrote what is inside it, and ~/.claude/skills/
+    # is also Claude Code's own synced-skills store. Only entries whose names
+    # come from this catalog are reported, so a user's own agent, command or
+    # skill is never handed to the operator as a removal target.
+    for child in "$entry"*; do
+      [[ -e "$child" ]] || continue
+      child_name="$(basename "$child")"
+      [[ -e "${claude_config}/${name}/${child_name}" ]] \
+        && legacy_paths+=("${claude_config}/${name}/${child_name}")
+    done
+  done
+
+  [[ "${#legacy_paths[@]}" -gt 0 ]] || return 0
+
+  echo ""
+  echo "  note: ${claude_config} still holds a legacy direct Claudio DR copy from"
+  echo "        before the marketplace migration (dr-agents#427). Claude Code loads"
+  echo "        claudio-dr@dr-agents from plugins/cache/dr-agents/, not these paths,"
+  echo "        and the two drift once only one is refreshed. This installer"
+  echo "        will not remove them for you; removing them is a separate,"
+  echo "        explicitly confirmed step. Paths:"
+  local path
+  for path in "${legacy_paths[@]}"; do
+    echo "          ${path}"
+  done
+}
+
 # ---------------------------------------------------------------------------
 # --global
 # ---------------------------------------------------------------------------
 
 mode_global() {
-  local claudio_src="${REPO_DIR}/plugins/claudio-dr"
-  local claudio_dest="${HOME}/.claude"
   local claudio_ver
   claudio_ver="$(claudio_version)"
 
   local cody_ver
   cody_ver="$(cody_version)"
+
+  local claude_config="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
 
   local agents_dest="${HOME}/.local/bin/agents"
 
@@ -623,10 +751,19 @@ mode_global() {
   fi
 
   echo "Installing claudio-dr v${claudio_ver}"
-  echo "  from: ${claudio_src}"
-  echo "  to  : ${claudio_dest}"
+  echo "  marketplace: dr-agents (${REPO_DIR})"
+  echo "  plugin     : claudio-dr@dr-agents"
   echo ""
-  install_plugin_dir "${claudio_src}" "${claudio_dest}" "${claudio_ver}" || conflicts=$((conflicts + 1))
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "claude CLI is required to install claudio-dr through the dr-agents marketplace" >&2
+    exit 1
+  fi
+  claude plugin marketplace add "${REPO_DIR}"
+  # Claude Code spells this `install` where Codex spells it `add`. The
+  # divergence belongs to the two CLIs, not to this catalog.
+  claude plugin install claudio-dr@dr-agents
+
+  report_legacy_claudio_copy "${claude_config}"
 
   echo ""
   echo "Installing cody-dr v${cody_ver}"
@@ -725,7 +862,11 @@ mode_status() {
   catalog_cody_ver="$(cody_version)"
 
   local codex_config="${CODEX_CONFIG_DIR:-${HOME}/.codex}"
-  local global_claudio_manifest="${HOME}/.claude/.claude-plugin/plugin.json"
+  local claude_config="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+  local global_claudio_cache
+  global_claudio_cache="$(registered_claudio_cache "${claude_config}")"
+  local global_claudio_manifest="${global_claudio_cache:-${claude_config}/plugins/cache/dr-agents/claudio-dr/${catalog_claudio_ver}}/.claude-plugin/plugin.json"
+  global_claudio_cache="${global_claudio_cache:-${claude_config}/plugins/cache/dr-agents/claudio-dr}"
   local registered_cody_ver=""
   local codex_plugins=""
   if command -v codex >/dev/null 2>&1; then
@@ -755,12 +896,14 @@ mode_status() {
   fi
 
   echo "Global:"
-  echo "  claudio-dr  $(installed_version "${global_claudio_manifest}")  (${HOME}/.claude/)"
+  echo "  claudio-dr  $(installed_version "${global_claudio_manifest}")  (${global_claudio_cache}/)"
   echo "  cody-dr     $(installed_version "${global_cody_manifest}")  (${global_cody_cache}/)"
   echo "  agents      ${agents_status}  (${agents_dest})"
   echo ""
   echo "Repo (${repo_root}):"
   echo "  claudio-dr  $(installed_version "${local_claudio_manifest}")  (.claude/)"
+
+  report_legacy_claudio_copy "${claude_config}"
 }
 
 # ---------------------------------------------------------------------------

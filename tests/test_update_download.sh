@@ -10,6 +10,7 @@ readonly fake_home="$tmp/home"
 readonly fake_bin="$tmp/fake-bin"
 readonly fake_catalog_store="$fake_home/.local/share/dr-agents"
 readonly codex_dir="$fake_home/.codex"
+readonly claude_dir="$fake_home/.claude"
 
 mkdir -p "$fake_home" "$fake_bin" "$fake_catalog_store/tmp" "$codex_dir"
 
@@ -74,8 +75,15 @@ exit 1
 EOF
 chmod +x "$fake_bin/curl"
 cp "$repository_root/tests/helpers/fake-codex.sh" "$fake_bin/codex"
-chmod +x "$fake_bin/codex"
+cp "$repository_root/tests/helpers/fake-claude.sh" "$fake_bin/claude"
+chmod +x "$fake_bin/codex" "$fake_bin/claude"
 readonly codex_call_log="$tmp/codex.log"
+readonly claude_call_log="$tmp/claude.log"
+for stub in claude codex; do
+  resolved="$(PATH="$fake_bin:$PATH" command -v "$stub")"
+  [[ "$resolved" == "$fake_bin/$stub" ]] \
+    || { echo "FAIL: PATH resolves $stub to $resolved, not the fake" >&2; exit 1; }
+done
 
 # bin/install --repo installs into the *current working directory*, not into
 # HOME, so a faked HOME alone does not contain a stray install: an unrejected
@@ -87,8 +95,9 @@ mkdir -p "$scratch_cwd"
 
 run_update() {
   ( cd "$scratch_cwd" \
-      && HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" PATH="$fake_bin:$PATH" \
-         CODEX_CALL_LOG="$codex_call_log" \
+      && HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" CLAUDE_CONFIG_DIR="$claude_dir" \
+         PATH="$fake_bin:$PATH" \
+         CODEX_CALL_LOG="$codex_call_log" CLAUDE_CALL_LOG="$claude_call_log" \
          bash "$repository_root/bin/update" "$@" 2>&1 )
 }
 

@@ -10,6 +10,7 @@ readonly fake_home="$tmp/home"
 readonly fake_bin="$tmp/fake-bin"
 readonly fake_catalog_store="$fake_home/.local/share/dr-agents"
 readonly codex_dir="$fake_home/.codex"
+readonly claude_dir="$fake_home/.claude"
 
 mkdir -p "$fake_home" "$fake_bin" "$fake_catalog_store/tmp" "$codex_dir"
 
@@ -30,10 +31,10 @@ readonly fake_tarball_path="$fake_catalog_store/tmp/$fake_tarball_name"
 (cd "$repository_root" && \
   tar czf "$fake_tarball_path" \
     --transform "s|^|dr-agents-${test_ver}/|" \
-    bin plugins profiles core .agents .codex-plugin .dr-agents 2>/dev/null || \
+    bin plugins profiles core .agents .claude-plugin .codex-plugin .dr-agents 2>/dev/null || \
   tar czf "$fake_tarball_path" \
     -s "|^|dr-agents-${test_ver}/|" \
-    bin plugins profiles core .agents .codex-plugin .dr-agents 2>/dev/null || \
+    bin plugins profiles core .agents .claude-plugin .codex-plugin .dr-agents 2>/dev/null || \
   COPYFILE_DISABLE=1 tar czf "$fake_tarball_path" \
     --exclude="*.DS_Store" \
     -C "$repository_root" \
@@ -111,11 +112,19 @@ exit 1
 EOF
 chmod +x "$fake_bin/curl"
 cp "$repository_root/tests/helpers/fake-codex.sh" "$fake_bin/codex"
-chmod +x "$fake_bin/codex"
+cp "$repository_root/tests/helpers/fake-claude.sh" "$fake_bin/claude"
+chmod +x "$fake_bin/codex" "$fake_bin/claude"
 readonly codex_call_log="$tmp/codex.log"
+readonly claude_call_log="$tmp/claude.log"
+for stub in claude codex; do
+  resolved="$(PATH="$fake_bin:$PATH" command -v "$stub")"
+  [[ "$resolved" == "$fake_bin/$stub" ]] \
+    || { echo "FAIL: PATH resolves $stub to $resolved, not the fake" >&2; exit 1; }
+done
 
 run_install() {
-  HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" CODEX_CALL_LOG="$codex_call_log" PATH="$fake_bin:$PATH" \
+  HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" CLAUDE_CONFIG_DIR="$claude_dir" \
+    CODEX_CALL_LOG="$codex_call_log" CLAUDE_CALL_LOG="$claude_call_log" PATH="$fake_bin:$PATH" \
     bash "$repository_root/bin/install" "$@" 2>&1
 }
 
@@ -131,6 +140,30 @@ pointer_file="$fake_catalog_store/catalog-path"
 [[ -f "$pointer_file" ]] || { echo "FAIL: --download did not write pointer file" >&2; exit 1; }
 pointer_content="$(< "$pointer_file")"
 [[ "$pointer_content" == "$extract_dir" ]] || { echo "FAIL: pointer file does not point to $extract_dir; got: $pointer_content" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# --download: the extracted tarball is itself registered as a marketplace
+#
+# dr-agents#427 deliberately kept no offline direct-copy exception. `claude
+# plugin marketplace add` accepts a local path, so the extracted release is a
+# valid marketplace source and the download route runs the same canonical path
+# as a checkout install. An offline exception would have preserved exactly the
+# second installation mechanism this change exists to remove, in the one code
+# path nobody exercises. Codex answered the same question the same way in
+# dr-agents#425.
+# ---------------------------------------------------------------------------
+grep -qF "plugin marketplace add $extract_dir" "$claude_call_log" \
+  || { echo "FAIL: --download did not register the extracted catalog as a Claude marketplace; log: $(cat "$claude_call_log")" >&2; exit 1; }
+grep -qF "plugin install claudio-dr@dr-agents" "$claude_call_log" \
+  || { echo "FAIL: --download did not install claudio-dr@dr-agents" >&2; exit 1; }
+grep -qF "plugin marketplace add $extract_dir" "$codex_call_log" \
+  || { echo "FAIL: --download did not register the extracted catalog as a Codex marketplace" >&2; exit 1; }
+
+download_claudio_ver="$(jq -r '.version' "$repository_root/plugins/claudio-dr/.claude-plugin/plugin.json")"
+[[ -f "$claude_dir/plugins/cache/dr-agents/claudio-dr/${download_claudio_ver}/.claude-plugin/plugin.json" ]] \
+  || { echo "FAIL: --download did not leave claudio-dr in the registered marketplace cache" >&2; exit 1; }
+[[ ! -e "$claude_dir/.claude-plugin/plugin.json" ]] \
+  || { echo "FAIL: --download created the legacy direct Claudio copy" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # --download: skip download when version already extracted
