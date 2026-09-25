@@ -12,6 +12,7 @@ the issue, and `profiles/dr-agents.md`; run `bin/check` before handoff.
 - **Authorized path:** `specs/dr-agents/target-resolution/`
 - **Authorized path:** `specs/dr-agents/review-reading-experience/`
 - **Authorized path:** `specs/dr-agents/change-discipline/`
+- **Authorized path:** `specs/dr-agents/surface-metadata/`
 
 Set `SPECS_REPOSITORY` to the private `owner/repository` identifier in the
 environment that invokes an agent. This declaration authorizes resolution of
