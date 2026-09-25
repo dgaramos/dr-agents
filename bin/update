@@ -37,8 +37,11 @@ Usage: bin/update --global [--force]
                        "Already at vX.Y.Z" when already up to date. Previous version directories
                        are preserved for manual rollback.
   --force              Forward --force to bin/install, skipping conflict checking and
-                       overwriting all files from the catalog source. Use this as the
-                       canonical resolution path for conflicts: agents update --global --force
+                       overwriting all files from the catalog source. With --global it
+                       also refreshes the dr-agents marketplace snapshot from source
+                       before the plugin CLIs install, so a just-pulled catalog cannot
+                       be installed from a stale snapshot. Use this as the canonical
+                       resolution path for conflicts: agents update --global --force
 EOF
   exit 1
 }

@@ -128,14 +128,25 @@ fi
 # --repo --force case below, which is now the mode that copies files. What
 # --global must still guarantee is that --force neither fails nor resurrects a
 # direct copy as a "forced" shortcut past the marketplace.
+#
+# dr-agents#433: it must also carry the marketplace snapshot refresh all the way
+# through the update. bin/install's own suite asserts the refresh fires there;
+# this asserts it survives the update -> install hop, which is the path an
+# operator actually runs and the only one where a stale snapshot can undo the
+# pull that just happened.
 # ---------------------------------------------------------------------------
 rm -rf "$fake_home/.claude" "$claude_dir" "$codex_dir"
 : > "$claude_call_log"
+: > "$codex_call_log"
 run_update --global --force >/dev/null 2>&1 \
   || { echo "FAIL: --global --force should exit 0" >&2; exit 1; }
 
 grep -qF "plugin install claudio-dr@dr-agents" "$claude_call_log" \
   || { echo "FAIL: --global --force did not install claudio-dr@dr-agents" >&2; exit 1; }
+grep -qF "plugin marketplace update dr-agents" "$claude_call_log" \
+  || { echo "FAIL: --global --force did not refresh the Claude marketplace snapshot" >&2; exit 1; }
+grep -qF "plugin marketplace upgrade dr-agents" "$codex_call_log" \
+  || { echo "FAIL: --global --force did not refresh the Codex marketplace snapshot" >&2; exit 1; }
 [[ ! -e "$claude_dir/.claude-plugin/plugin.json" ]] \
   || { echo "FAIL: --global --force created the legacy direct Claudio copy" >&2; exit 1; }
 
