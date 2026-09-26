@@ -7,5 +7,14 @@
     "email": "dgaramos+claudio@gmail.com",
     "url": "https://github.com/dgaramos"
   },
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "agents": [
+    "./agents/claudio-author.md",
+    "./agents/claudio-designer.md",
+    "./agents/claudio-executor.md",
+    "./agents/claudio-findings.md",
+    "./agents/claudio-helper.md",
+    "./agents/claudio-reviewer.md",
+    "./agents/claudio-spec.md"
+  ]
 }
