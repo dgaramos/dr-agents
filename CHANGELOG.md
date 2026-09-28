@@ -4,6 +4,24 @@ All notable changes to this catalog are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.43] - 2026-09-28
+
+Both adapters gain a read-only `guide` skill that describes the installed
+catalog from its own tree. Reinstall to make the new surface available.
+
+### Added
+
+- A `workflow-navigation` core area: a navigation contract for deriving an
+  inventory from the installed tree, and a lifecycle-sequence contract for
+  which SDLC stages are optional and what decides.
+- A public `guide` skill in both adapters, carrying identity and invocation
+  syntax only.
+
+### Changed
+
+- Both plugin manifests, marketplace entries, and publisher stub markers now
+  carry `0.1.43`.
+
 ## [0.1.42] - 2026-09-25
 
 Both adapters now expose machine-readable surface metadata for agents and
