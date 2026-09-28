@@ -604,25 +604,36 @@ fi
 
 # The public README is the catalog surface. Every advertised capability must
 # exist in both adapters, and adapters may not ship an undocumented skill.
-readonly public_skill_names=(
-  "review-pr"
-  "handle-pr-findings"
-  "author-issue"
-  "design-discovery"
-  "design-and-author"
-  "clarify-spec"
-  "analyze-spec"
-  "classify-spec-drift"
-  "start-issue"
-  "plan-issue"
-  "ship-issue"
-  "plan-implementation"
-  "implement-issue"
-  "ship-change"
-  "execute-issue"
-  "guide"
-)
+#
+# The skill set is derived from the adapter trees, never listed here. A
+# committed list is quietly wrong the day a skill is added: it passes while
+# describing a catalog that no longer exists. Deriving it means a new skill
+# directory enters both checks below by existing, which is what
+# core/workflow-navigation/references/navigation-contract.md requires of any
+# statement about which surfaces this catalog has.
+#
+# Note the set is the union of the skill directories, not the skills declaring
+# `visibility: public`. Those are different sets: visibility describes whether
+# a user invokes a surface directly or a lifecycle entrypoint chains it, and
+# five README-announced skills declare `internal` on that axis. Deriving from
+# visibility would silently stop requiring a README row for them.
 readonly public_adapter_prefixes=("plugins/cody-dr" "plugins/claudio-dr")
+
+public_skill_names=()
+while IFS= read -r skill_name; do
+  public_skill_names+=("$skill_name")
+done < <(
+  for prefix in "${public_adapter_prefixes[@]}"; do
+    find "$prefix/skills" -mindepth 2 -maxdepth 2 -name SKILL.md \
+      -exec dirname {} \; | xargs -n1 basename
+  done | sort -u
+)
+readonly public_skill_names
+
+if [[ ${#public_skill_names[@]} -eq 0 ]]; then
+  echo "public surface: no adapter skills found; the derivation is broken" >&2
+  exit 1
+fi
 
 for skill_name in "${public_skill_names[@]}"; do
   if ! grep -qF "\`$skill_name\`" README.md; then
@@ -637,19 +648,6 @@ for skill_name in "${public_skill_names[@]}"; do
       exit 1
     fi
   done
-done
-
-for prefix in "${public_adapter_prefixes[@]}"; do
-  while IFS= read -r skill; do
-    skill_name="$(basename "$(dirname "$skill")")"
-    case " ${public_skill_names[*]} " in
-      *" $skill_name "*) ;;
-      *)
-        echo "public surface: $skill is not documented in README.md" >&2
-        exit 1
-        ;;
-    esac
-  done < <(find "$prefix/skills" -mindepth 2 -maxdepth 2 -name SKILL.md | sort)
 done
 
 # Validate the portable areas that users can install, not merely their files.

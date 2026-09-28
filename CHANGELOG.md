@@ -19,6 +19,9 @@ catalog from its own tree. Reinstall to make the new surface available.
 
 ### Changed
 
+- `bin/check` derives the public skill set from the adapter trees instead of a
+  committed list, so a new skill enters the README and parity checks by
+  existing.
 - Both plugin manifests, marketplace entries, and publisher stub markers now
   carry `0.1.43`.
 
