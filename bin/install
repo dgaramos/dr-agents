@@ -776,6 +776,41 @@ mode_global() {
   # Claude Code spells this `install` where Codex spells it `add`. The
   # divergence belongs to the two CLIs, not to this catalog.
   claude plugin install claudio-dr@dr-agents
+  # dr-agents#455: `install` is a no-op on an already-installed plugin. It
+  # leaves the recorded version at whatever was recorded when the plugin was
+  # first installed, and says so in its own output, naming `plugin update` as
+  # the command that re-records it. `--force` does not cover this: that
+  # refreshes the marketplace snapshot (#433), a different operation.
+  #
+  # The two dispatches are a pair, not a redundancy. `update` alone cannot
+  # replace `install`, because it exits non-zero on a plugin that is not yet
+  # installed ("Plugin \"claudio-dr\" not found"), which would break every
+  # first-time install. `install` covers the first install; `update` covers
+  # the re-record. Both are idempotent, so running them in sequence is safe.
+  claude plugin update claudio-dr@dr-agents
+
+  # Verify rather than assume. Reporting "Global install complete" over a
+  # recorded version that still disagrees with the catalog is what made this
+  # drift invisible: `claude plugin list` read one version while the catalog
+  # manifest read another, and nothing in the flow said so.
+  #
+  # This reads the state through the same two helpers the rest of bin/install
+  # uses (registered_claudio_cache, installed_version) rather than introducing
+  # a second reader. A gate that is wrong about where the version is recorded
+  # would turn a working update into a hard failure on every machine, so it
+  # must not be able to disagree with the reader already in use here.
+  local recorded_cache recorded_claudio_ver
+  recorded_cache="$(registered_claudio_cache "${claude_config}")"
+  recorded_claudio_ver="$(installed_version "${recorded_cache}/.claude-plugin/plugin.json")"
+  if [[ "${recorded_claudio_ver}" != "${claudio_ver}" ]]; then
+    echo "" >&2
+    echo "Claude records claudio-dr ${recorded_claudio_ver}, but the catalog is at ${claudio_ver}." >&2
+    echo "  recorded: ${recorded_cache:-<nothing registered>}" >&2
+    echo "  catalog : ${REPO_DIR}" >&2
+    echo "The install did not re-record the version. Not reporting completion." >&2
+    echo "Try: claude plugin update claudio-dr@dr-agents" >&2
+    exit 1
+  fi
 
   report_legacy_claudio_copy "${claude_config}"
 

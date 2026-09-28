@@ -92,6 +92,127 @@ pointer_content="$(< "$global_pointer")"
 run_install "$tmp" --global
 
 # ---------------------------------------------------------------------------
+# dr-agents#455: --global re-records the version on an already-installed plugin
+#
+# `claude plugin install` no-ops on an already-installed plugin and leaves the
+# recorded version alone, so `agents update --global` used to print "Global
+# install complete" while `claude plugin list` still reported the version from
+# whenever the plugin was first installed. The catalog's job is to leave every
+# reading of the installed version agreeing.
+#
+# The fake models that no-op (tests/helpers/fake-claude.sh); without it this
+# test would pass against a CLI stub that was never wrong.
+# ---------------------------------------------------------------------------
+recorded_claudio_version() {
+  jq -r '(.plugins["claudio-dr@dr-agents"] // []) | map(.version // empty) | first // empty' \
+    "$claude_dir/plugins/installed_plugins.json"
+}
+
+stale_version="0.0.1-stale"
+stale_path="$claude_dir/plugins/cache/dr-agents/claudio-dr/$stale_version"
+mkdir -p "$stale_path/.claude-plugin"
+printf '{"name":"claudio-dr","version":"%s"}\n' "$stale_version" \
+  > "$stale_path/.claude-plugin/plugin.json"
+jq -n --arg path "$stale_path" --arg version "$stale_version" \
+  '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+  > "$claude_dir/plugins/installed_plugins.json"
+
+[[ "$(recorded_claudio_version)" == "$stale_version" ]] \
+  || { echo "FAIL: could not stage a stale recorded version" >&2; exit 1; }
+
+stale_output="$(run_install "$tmp" --global)"
+
+grep -qF "plugin update claudio-dr@dr-agents" "$claude_call_log" \
+  || { echo "FAIL: --global did not dispatch 'plugin update' to re-record the version" >&2; exit 1; }
+[[ "$(recorded_claudio_version)" == "$claudio_ver" ]] \
+  || { echo "FAIL: --global left the recorded version at $(recorded_claudio_version), not $claudio_ver" >&2; exit 1; }
+echo "$stale_output" | grep -q "Global install complete" \
+  || { echo "FAIL: --global did not complete after re-recording; output: $stale_output" >&2; exit 1; }
+rm -rf "$stale_path"
+
+# ---------------------------------------------------------------------------
+# dr-agents#455: --global does not claim completion when the version disagrees
+#
+# The failure path. If the dispatch does not leave the recorded version
+# matching the catalog, the flow must say so rather than print "Global install
+# complete" over the top of a disagreement it can see.
+#
+# A dedicated stub stands in for a CLI whose `update` does not honour the
+# re-record — the realistic failure, and the one the gate exists to catch.
+# Pointing this at the shared fake would mean asserting a defect into the fake
+# that the other cases depend on not having.
+# ---------------------------------------------------------------------------
+lying_home="$tmp/lying-home"
+lying_claude_dir="$lying_home/.claude"
+lying_bin="$tmp/lying-bin"
+mkdir -p "$lying_home" "$lying_bin"
+cp "$repository_root/tests/helpers/fake-codex.sh" "$lying_bin/codex"
+# Neuter only the update path's re-record; everything else behaves as the fake.
+sed 's/^  updated="\$(record_install)"$/  updated="$existing"/' \
+  "$repository_root/tests/helpers/fake-claude.sh" > "$lying_bin/claude"
+grep -qF 'updated="$existing"' "$lying_bin/claude" \
+  || { echo "FAIL: could not build the non-re-recording claude stub" >&2; exit 1; }
+chmod +x "$lying_bin/codex" "$lying_bin/claude"
+
+# Install once so the plugin is present, then stage a stale recording for the
+# stub to fail to repair.
+( cd "$tmp" \
+  && HOME="$lying_home" CODEX_CONFIG_DIR="$lying_home/.codex" \
+     CLAUDE_CONFIG_DIR="$lying_claude_dir" \
+     CODEX_CALL_LOG="$tmp/lying-codex.log" CLAUDE_CALL_LOG="$tmp/lying-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global >/dev/null 2>&1 )
+
+lying_stale="$lying_claude_dir/plugins/cache/dr-agents/claudio-dr/$stale_version"
+mkdir -p "$lying_stale/.claude-plugin"
+printf '{"name":"claudio-dr","version":"%s"}\n' "$stale_version" \
+  > "$lying_stale/.claude-plugin/plugin.json"
+jq -n --arg path "$lying_stale" --arg version "$stale_version" \
+  '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+  > "$lying_claude_dir/plugins/installed_plugins.json"
+
+if lying_output="$( cd "$tmp" \
+    && HOME="$lying_home" CODEX_CONFIG_DIR="$lying_home/.codex" \
+       CLAUDE_CONFIG_DIR="$lying_claude_dir" \
+       CODEX_CALL_LOG="$tmp/lying-codex.log" CLAUDE_CALL_LOG="$tmp/lying-claude.log" \
+       PATH="$lying_bin:$PATH" \
+       bash "$repository_root/bin/install" --global 2>&1 )"; then
+  echo "FAIL: --global exited 0 with a recorded version that disagrees with the catalog" >&2
+  echo "$lying_output" >&2
+  exit 1
+fi
+echo "$lying_output" | grep -qF "$stale_version" \
+  || { echo "FAIL: --global did not name the disagreeing recorded version; output: $lying_output" >&2; exit 1; }
+echo "$lying_output" | grep -qF "$claudio_ver" \
+  || { echo "FAIL: --global did not name the catalog version it expected; output: $lying_output" >&2; exit 1; }
+if echo "$lying_output" | grep -q "Global install complete"; then
+  echo "FAIL: --global claimed completion despite a version disagreement" >&2; exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# dr-agents#455: a first-time --global still installs and records correctly
+#
+# The edge case that rules out replacing `install` with `update`. The real
+# `claude plugin update` exits non-zero on a plugin that is not installed, so
+# the two dispatches are a pair, not a redundancy.
+# ---------------------------------------------------------------------------
+fresh_home="$tmp/fresh-home"
+fresh_claude_dir="$fresh_home/.claude"
+mkdir -p "$fresh_home"
+fresh_output="$( cd "$tmp" \
+  && HOME="$fresh_home" CODEX_CONFIG_DIR="$fresh_home/.codex" \
+     CLAUDE_CONFIG_DIR="$fresh_claude_dir" \
+     CODEX_CALL_LOG="$tmp/fresh-codex.log" CLAUDE_CALL_LOG="$tmp/fresh-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global 2>&1 )"
+echo "$fresh_output" | grep -q "Global install complete" \
+  || { echo "FAIL: first-time --global did not complete; output: $fresh_output" >&2; exit 1; }
+fresh_recorded="$(jq -r '(.plugins["claudio-dr@dr-agents"] // []) | map(.version // empty) | first // empty' \
+  "$fresh_claude_dir/plugins/installed_plugins.json")"
+[[ "$fresh_recorded" == "$claudio_ver" ]] \
+  || { echo "FAIL: first-time --global recorded $fresh_recorded, not $claudio_ver" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
 # --global --force: refreshes both marketplace snapshots before installing
 #
 # Neither plugin CLI has a --force flag, so --force cannot be forwarded
