@@ -190,6 +190,55 @@ if echo "$lying_output" | grep -q "Global install complete"; then
 fi
 
 # ---------------------------------------------------------------------------
+# dr-agents#455: the gate reads the RECORDED version, not the payload manifest
+#
+# The two readings are distinct, and every other fixture here moves them
+# together — so they cannot tell apart a gate that reads the recorded
+# `version` field from one that reads the manifest at the recorded
+# installPath. This one decouples them deliberately: the recorded field is
+# stale while the manifest at that same installPath already reports the
+# catalog version.
+#
+# That is the state issue #455 is actually about — `claude plugin list` prints
+# the field, not the manifest. A gate reading the manifest sees the catalog
+# version here and prints "Global install complete" over a recording that is
+# still wrong.
+# ---------------------------------------------------------------------------
+decoupled_path="$lying_claude_dir/plugins/cache/dr-agents/claudio-dr/$stale_version"
+mkdir -p "$decoupled_path/.claude-plugin"
+# The manifest at the recorded path is CURRENT ...
+printf '{"name":"claudio-dr","version":"%s"}\n' "$claudio_ver" \
+  > "$decoupled_path/.claude-plugin/plugin.json"
+# ... while the field Claude actually records, and prints, is stale.
+jq -n --arg path "$decoupled_path" --arg version "$stale_version" \
+  '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+  > "$lying_claude_dir/plugins/installed_plugins.json"
+
+# Guard the fixture itself: if these two ever agree, the test proves nothing.
+[[ "$(jq -r '.version' "$decoupled_path/.claude-plugin/plugin.json")" == "$claudio_ver" \
+   && "$(jq -r '(.plugins["claudio-dr@dr-agents"] // []) | map(.version // empty) | first // empty' \
+         "$lying_claude_dir/plugins/installed_plugins.json")" == "$stale_version" ]] \
+  || { echo "FAIL: could not stage a decoupled recorded-version/manifest state" >&2; exit 1; }
+
+if decoupled_output="$( cd "$tmp" \
+    && HOME="$lying_home" CODEX_CONFIG_DIR="$lying_home/.codex" \
+       CLAUDE_CONFIG_DIR="$lying_claude_dir" \
+       CODEX_CALL_LOG="$tmp/lying-codex.log" CLAUDE_CALL_LOG="$tmp/lying-claude.log" \
+       PATH="$lying_bin:$PATH" \
+       bash "$repository_root/bin/install" --global 2>&1 )"; then
+  echo "FAIL: --global exited 0 while Claude still recorded $stale_version" >&2
+  echo "      (the gate read the manifest at installPath, not the recorded version)" >&2
+  echo "$decoupled_output" >&2
+  exit 1
+fi
+echo "$decoupled_output" | grep -qF "$stale_version" \
+  || { echo "FAIL: --global did not name the stale recorded version; output: $decoupled_output" >&2; exit 1; }
+if echo "$decoupled_output" | grep -q "Global install complete"; then
+  echo "FAIL: --global claimed completion over a stale recorded version" >&2; exit 1
+fi
+
+
+# ---------------------------------------------------------------------------
 # dr-agents#455: a first-time --global still installs and records correctly
 #
 # The edge case that rules out replacing `install` with `update`. The real

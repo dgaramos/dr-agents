@@ -166,6 +166,63 @@ registered_claudio_cache() {
   return 0
 }
 
+# The version Claude Code has RECORDED for claudio-dr@dr-agents — the value
+# `claude plugin list` prints, read straight from installed_plugins.json.
+#
+# dr-agents#455 is a defect in this field specifically, so the gate below
+# reads it rather than inferring it. Deriving it instead from
+# registered_claudio_cache() plus the manifest at that installPath reads a
+# different value: when the recorded field is stale while the manifest at its
+# installPath already exposes the current payload, the derived reading reports
+# the catalog version and the gate passes over a recording `claude plugin
+# list` still prints as stale. tests/test_install.sh stages exactly that.
+#
+# registered_claudio_cache() also falls back to the newest directory in the
+# cache when nothing is registered, which would let an unregistered leftover
+# read as a healthy install. That one is not reachable through mode_global —
+# the `install` dispatch re-records first, measured — but it is one more
+# reason this reading should not be derived through that helper.
+#
+# Selects the same entry registered_claudio_cache selects (user scope first).
+# Prints nothing when no version is recorded.
+registered_claudio_version() {
+  local claude_config="$1"
+  local state="${claude_config}/plugins/installed_plugins.json"
+
+  [[ -f "${state}" ]] || return 0
+
+  local recorded=""
+  if command -v jq >/dev/null 2>&1; then
+    recorded="$(jq -r '
+      (.plugins["claudio-dr@dr-agents"] // [])
+      | (map(select(.scope == "user")) + .)
+      | map(.version // empty)
+      | first // empty
+    ' "${state}" 2>/dev/null || true)"
+  else
+    # Same trim as registered_claudio_cache: start at the claudio-dr key so an
+    # earlier plugin's version field on a single-line state file cannot match.
+    recorded="$(awk '
+      !seen {
+        key = index($0, "\"claudio-dr@dr-agents\"")
+        if (key == 0) next
+        seen = 1
+        $0 = substr($0, key)
+      }
+      match($0, /"version"[[:space:]]*:[[:space:]]*"[^"]*"/) {
+        field = substr($0, RSTART, RLENGTH)
+        sub(/^"version"[[:space:]]*:[[:space:]]*"/, "", field)
+        sub(/"$/, "", field)
+        print field
+        exit
+      }
+    ' "${state}" 2>/dev/null || true)"
+  fi
+
+  [[ -n "${recorded}" && "${recorded}" != "null" ]] && printf '%s\n' "${recorded}"
+  return 0
+}
+
 # Return the version string embedded in an already-installed plugin.json, or
 # "unknown" when the file is absent or unparseable.
 installed_version() {
@@ -794,17 +851,21 @@ mode_global() {
   # drift invisible: `claude plugin list` read one version while the catalog
   # manifest read another, and nothing in the flow said so.
   #
-  # This reads the state through the same two helpers the rest of bin/install
-  # uses (registered_claudio_cache, installed_version) rather than introducing
-  # a second reader. A gate that is wrong about where the version is recorded
-  # would turn a working update into a hard failure on every machine, so it
-  # must not be able to disagree with the reader already in use here.
+  # The defect is in the `version` field of installed_plugins.json — the value
+  # `claude plugin list` prints — so the gate reads that field directly via
+  # registered_claudio_version(). Deriving it instead from the manifest at the
+  # recorded installPath reads a different value that can report the catalog
+  # version while the field itself is still stale, or while nothing is
+  # recorded at all; see the helper for both reachable cases.
+  #
+  # registered_claudio_cache() is still read, but only to name the registered
+  # location in the diagnostic.
   local recorded_cache recorded_claudio_ver
   recorded_cache="$(registered_claudio_cache "${claude_config}")"
-  recorded_claudio_ver="$(installed_version "${recorded_cache}/.claude-plugin/plugin.json")"
+  recorded_claudio_ver="$(registered_claudio_version "${claude_config}")"
   if [[ "${recorded_claudio_ver}" != "${claudio_ver}" ]]; then
     echo "" >&2
-    echo "Claude records claudio-dr ${recorded_claudio_ver}, but the catalog is at ${claudio_ver}." >&2
+    echo "Claude records claudio-dr ${recorded_claudio_ver:-<no recorded version>}, but the catalog is at ${claudio_ver}." >&2
     echo "  recorded: ${recorded_cache:-<nothing registered>}" >&2
     echo "  catalog : ${REPO_DIR}" >&2
     echo "The install did not re-record the version. Not reporting completion." >&2
