@@ -101,3 +101,5 @@ jobs:
         run: bash tests/test_update.sh
       - name: test_update_download
         run: bash tests/test_update_download.sh
+      - name: test_check_assertion_messages
+        run: bash tests/test_check_assertion_messages.sh
