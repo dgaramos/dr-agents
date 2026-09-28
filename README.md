@@ -79,6 +79,7 @@ contributor.
 
 | Skill | What it does |
 | --- | --- |
+| `guide` | Explain what the catalog offers, what each surface changes, and how the capabilities compose, without invoking any of them |
 | `review-pr` | Evidence-first PR review with incremental re-review |
 | `handle-pr-findings` | Triage, fix, defer, or reject findings against the current head |
 | `author-issue` | Draft and optionally publish a structured GitHub issue; performs mode-detection and profile-discovery to select the correct publisher |
