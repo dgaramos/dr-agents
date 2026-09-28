@@ -162,6 +162,11 @@ readonly required_paths=(
   "core/work-sizing/references/work-sizing-contract.md"
   "examples/generic-work-sizing.md"
   "core/surface-metadata/references/surface-metadata-contract.md"
+  "core/workflow-navigation/references/navigation-contract.md"
+  "core/workflow-navigation/references/lifecycle-sequence-contract.md"
+  "examples/generic-workflow-navigation.md"
+  "plugins/claudio-dr/skills/guide/SKILL.md"
+  "plugins/cody-dr/skills/guide/SKILL.md"
   "examples/generic-surface-metadata.md"
   "tests/test_surface_metadata.sh"
   ".codex-plugin/marketplace.json"
@@ -615,6 +620,7 @@ readonly public_skill_names=(
   "implement-issue"
   "ship-change"
   "execute-issue"
+  "guide"
 )
 readonly public_adapter_prefixes=("plugins/cody-dr" "plugins/claudio-dr")
 
@@ -946,8 +952,23 @@ done
 # profile autonomously. Without this instruction the model requires an explicit
 # profile argument and behaves asymmetrically across callers.
 readonly profile_discovery_ref="core/profile-discovery/references/profile-discovery-contract.md"
+# The rule is stated for PROJECT-AWARE skills and the loop applied to all of
+# them, which went unnoticed while every skill was project-aware. A navigation
+# skill describes the catalog, and its own contract forbids reading anything
+# outside the installed plugin root -- so requiring it to discover a project
+# profile would mean requiring it to contradict that boundary.
+#
+# This is an explicit exemption by name, not a derived property, because no
+# declared field distinguishes a catalog-describing skill from a project-aware
+# one. If a second such skill appears, that distinction should become declared
+# rather than a second name listed here. dr-agents#451.
+readonly catalog_describing_skills=("guide")
 for prefix in "${public_adapter_prefixes[@]}"; do
   while IFS= read -r skill; do
+    skill_dir_name="$(basename "$(dirname "$skill")")"
+    case " ${catalog_describing_skills[*]} " in
+      *" $skill_dir_name "*) continue ;;
+    esac
     if ! grep -qF "$profile_discovery_ref" "$skill"; then
       echo "drift: $skill does not reference $profile_discovery_ref" >&2
       exit 1
@@ -1773,6 +1794,57 @@ validate_agent_reach() {
 if ! bash .github/scripts/verify-publisher-capabilities.sh .github/workflows; then
   exit 1
 fi
+
+# Workflow navigation describes the catalog from what it declares. The phrases
+# below are the load-bearing ones: each names a rule the guide is held to, and
+# a contract that has lost one has lost the rule, not just a sentence. They are
+# asserted individually so the failure names which rule went missing.
+readonly navigation_contract="core/workflow-navigation/references/navigation-contract.md"
+for required_text in \
+  'derived from the installed tree at the moment it is asked' \
+  'read from declared frontmatter, never inferred from prose' \
+  'names invocations and never performs them'; do
+  if ! grep -qF "$required_text" "$navigation_contract"; then
+    echo "workflow-navigation: $navigation_contract is missing required phrase: $required_text" >&2
+    exit 1
+  fi
+done
+
+# The sequencing contract must defer to the issue-workflow contract for the
+# order inside delivery. Two statements of that order would drift with nothing
+# reconciling them, which is the failure the single-source rule exists to stop.
+readonly lifecycle_contract="core/workflow-navigation/references/lifecycle-sequence-contract.md"
+if ! grep -qF 'does not restate the order inside issue delivery' "$lifecycle_contract"; then
+  echo "workflow-navigation: $lifecycle_contract does not defer issue-delivery order to the issue-workflow contract" >&2
+  exit 1
+fi
+if ! grep -qF 'core/issue-workflow/references/workflow-contract.md' "$lifecycle_contract"; then
+  echo "workflow-navigation: $lifecycle_contract does not reference core/issue-workflow/references/workflow-contract.md" >&2
+  exit 1
+fi
+
+# The adapter skills carry identity and invocation syntax only. A guide that
+# restated a contract phrase would be a second source for it, which is what the
+# reference-by-path rule exists to prevent.
+for guide in plugins/claudio-dr/skills/guide/SKILL.md plugins/cody-dr/skills/guide/SKILL.md; do
+  if ! grep -qF "$navigation_contract" "$guide"; then
+    echo "workflow-navigation: $guide does not reference $navigation_contract" >&2
+    exit 1
+  fi
+  if ! grep -qF "$lifecycle_contract" "$guide"; then
+    echo "workflow-navigation: $guide does not reference $lifecycle_contract" >&2
+    exit 1
+  fi
+  for restated in \
+    'derived from the installed tree at the moment it is asked' \
+    'names invocations and never performs them' \
+    'does not restate the order inside issue delivery'; do
+    if grep -qF "$restated" "$guide"; then
+      echo "workflow-navigation: $guide restates portable contract text; reference the contract by path instead: $restated" >&2
+      exit 1
+    fi
+  done
+done
 
 validate_surface_metadata .
 compare_surface_counterparts .
