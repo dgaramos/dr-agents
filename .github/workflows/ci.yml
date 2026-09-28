@@ -57,47 +57,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: test_apply_pr_metadata
-        run: bash tests/test_apply_pr_metadata.sh
-      - name: test_discover_project_profile
-        run: bash tests/test_discover_project_profile.sh
-      - name: test_plugin_core_bundles
-        run: bash tests/test_plugin_core_bundles.sh
-      - name: test_helper_agents
-        run: bash tests/test_helper_agents.sh
-      - name: test_publish_claudio_thread_action
-        run: bash tests/test_publish_claudio_thread_action.sh
-      - name: test_publish_cody_thread_action
-        run: bash tests/test_publish_cody_thread_action.sh
-      - name: test_publish_pr_metadata
-        run: bash tests/test_publish_pr_metadata.sh
-      - name: test_verify_publisher_dispatch
-        run: bash tests/test_verify_publisher_dispatch.sh
-      - name: test_verify_publisher_capabilities
-        run: bash tests/test_verify_publisher_capabilities.sh
-      - name: test_verify_catalog_parity
-        run: bash tests/test_verify_catalog_parity.sh
-      - name: test_verify_delivery_authorship
-        run: bash tests/test_verify_delivery_authorship.sh
-      - name: test_publication_input
-        run: bash tests/test_publication_input.sh
-      - name: test_publisher_smoke
-        run: bash tests/test_publisher_smoke.sh
-      - name: test_smoke_find_issue_target
-        run: bash tests/test_smoke_find_issue_target.sh
-      - name: test_publication_outcomes
-        run: bash tests/test_publication_outcomes.sh
-      - name: test_load_review_threads
-        run: bash tests/test_load_review_threads.sh
-      - name: test_validate_review_manifest
-        run: bash tests/test_validate_review_manifest.sh
-      - name: test_dispatch_review_manifest
-        run: bash tests/test_dispatch_review_manifest.sh
-      - name: test_verify_review_publication
-        run: bash tests/test_verify_review_publication.sh
-      - name: test_install
-        run: bash tests/test_install.sh
-      - name: test_update
-        run: bash tests/test_update.sh
-      - name: test_update_download
-        run: bash tests/test_update_download.sh
+      # dr-agents#457: the suite is DERIVED from tests/, not enumerated. The
+      # enumerated list had drifted to 23 of 41 scripts -- test_surface_metadata,
+      # test_drift, test_select_publisher and test_resolve_target among the 18
+      # that ran locally and in bin/check but in no required check. A hand-kept
+      # list passes today and is wrong the day a test is added, which is the
+      # pitfall CLAUDE.md already records. The loop names each script as it runs
+      # and stops at the first failure, so a red job still says which test broke.
+      - name: tests
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          scripts=(tests/test_*.sh)
+          if [[ ${#scripts[@]} -eq 0 ]]; then
+            echo "no test scripts found under tests/ -- the glob matched nothing" >&2
+            exit 1
+          fi
+          for script in "${scripts[@]}"; do
+            echo "::group::$script"
+            bash "$script"
+            echo "::endgroup::"
+          done
+          echo "ran ${#scripts[@]} test scripts"

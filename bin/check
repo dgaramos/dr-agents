@@ -1,5 +1,36 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# dr-agents#457: `E` enables errtrace, which makes the ERR trap below be
+# inherited by SHELL FUNCTIONS. It is not decorative and it is not style.
+# Removing it breaks nothing visibly: the gate keeps passing, every test keeps
+# passing, and coverage silently collapses to top-level assertions only --
+# every bare assertion inside `validate_surface_metadata`, `assert_reusable_ref`,
+# `assert_stub_is_thin` and the other function bodies goes back to exiting 1
+# with no output. Measured both ways on the same fixture: without `-E` a
+# failing assertion inside a function gives `exit=1` and zero output; with it,
+# the named message. tests/test_check_assertion_messages.sh pins this, because
+# a flag whose removal causes no test to fail is a flag that gets removed.
+set -Eeuo pipefail
+
+# Name the assertion that failed. This gate is mostly bare `grep -q` and
+# `jq -e` calls whose only output is an exit status; there were ~70 such sites
+# when this was added, so a contributor who tripped one got a non-zero exit and
+# nothing else -- not the file, not the expectation, not a line number. Finding
+# the cause meant `bash -x bin/check 2>&1 | tail -20`, twice, in real work.
+#
+# A trap rather than ~70 per-site messages: it covers the assertions written
+# after this one too, so the convention is structural instead of remembered.
+# `$BASH_COMMAND` already carries the file path in nearly all of these, which
+# is most of what "name the file and the expectation" asks for. Guarded
+# contexts (`if grep -q`, `|| true`, `! grep -q`, `|| { echo; exit 1; }`,
+# `$(... || true)`) do not fire it, so assertions that handle their own failure
+# are unaffected and messages already written are not duplicated.
+#
+# dr-agents#457 also asked whether to add a guard rejecting newly introduced
+# bare assertions. Deliberately not added: the trap makes a bare assertion
+# report itself, so there is no longer a convention for a guard to enforce.
+# Machinery defending a rule that enforces itself is machinery to maintain for
+# nothing.
+trap 'bin_check_status=$?; echo "bin/check: assertion failed (line $LINENO, exit $bin_check_status): $BASH_COMMAND" >&2' ERR
 
 # Labels recognized by this catalog. Update when a new label is added to the
 # repository so bin/check can validate that profile-referenced labels are known.
@@ -144,6 +175,7 @@ readonly required_paths=(
   "bin/drift"
   ".github/scripts/verify-catalog-parity.sh"
   "tests/test_verify_catalog_parity.sh"
+  "tests/test_guarded_assertions.sh"
   "bin/install"
   "bin/update"
   "bin/sync-plugin-core-bundles.sh"
@@ -674,7 +706,8 @@ done
 # adapter version. This avoids publishing a catalog whose public installation
 # surface differs from its source tree.
 jq -e '.name == "cody-dr" and (.version | type == "string") and .skills == "./skills/" and .agents == "./agents/"' \
-  plugins/cody-dr/.codex-plugin/plugin.json >/dev/null
+  plugins/cody-dr/.codex-plugin/plugin.json >/dev/null ||
+  { echo "manifest: plugins/cody-dr/.codex-plugin/plugin.json must declare name, version, skills dir, and an agents DIRECTORY string" >&2; exit 1; }
 # dr-agents#436: this asserted `has("agents") | not`, so the gate REQUIRED the
 # asymmetry rather than merely failing to notice it. Claudio ships seven agents
 # and declared none; they loaded by Claude Code's convention-based discovery,
@@ -1977,6 +2010,42 @@ while IFS= read -r catalog_skill; do
 done < <(find plugins/claudio-dr/skills -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)
 
 if [[ "$repo_surface_failed" == "1" ]]; then
+  exit 1
+fi
+
+# dr-agents#457: bash suppresses `set -e` through the ENTIRE body of a function
+# invoked in a guarded context -- `f || echo`, `if f`, `f && g`. A bare
+# assertion inside such a function does not abort; the body runs past it and the
+# function returns only its last command's status. The assertions stop enforcing
+# and nothing says so.
+#
+# Every assertion-carrying function here is currently invoked unguarded, so the
+# gap is latent rather than active. It becomes real the moment someone writes
+# `validate_surface_metadata . || echo "..."`, which is a natural thing to reach
+# for when adding a fallback. This rejects that call site instead of trusting it
+# not to appear.
+#
+# Both sets are derived from this file: the function names from their
+# definitions, the call sites from the text. Nothing is enumerated, so a
+# function added tomorrow is covered by existing.
+guarded_assertion_calls() {
+  local self="$1" fn
+  while IFS= read -r fn; do
+    [[ -n "$fn" ]] || continue
+    # A guarded invocation is the name preceded by `if`/`while`/`!` or followed
+    # by `||`/`&&`. Definitions and comments are excluded.
+    grep -nE "(^|[[:space:]])(if|while|!)[[:space:]]+${fn}([[:space:]]|$)|(^|[[:space:]])${fn}([[:space:]][^|&]*)?[[:space:]]*(\|\||&&)" "$self" \
+      | grep -v "^[0-9]*:[[:space:]]*#" \
+      | grep -v "${fn}() {" \
+      | sed "s|^|${fn}: |" || true
+  done < <(grep -oE '^(assert|validate|compare)_[a-z_]+\(\)' "$self" | sed 's/()//')
+}
+
+guarded_calls="$(guarded_assertion_calls "$0")"
+if [[ -n "$guarded_calls" ]]; then
+  echo "guarded assertion: these functions carry assertions that stop enforcing when invoked in a guarded context (set -e is suppressed through the whole body):" >&2
+  printf '%s\n' "$guarded_calls" >&2
+  echo "guarded assertion: call them unguarded, or have them report and return a status the caller checks explicitly" >&2
   exit 1
 fi
 
