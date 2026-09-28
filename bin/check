@@ -1,5 +1,36 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# dr-agents#457: `E` enables errtrace, which makes the ERR trap below be
+# inherited by SHELL FUNCTIONS. It is not decorative and it is not style.
+# Removing it breaks nothing visibly: the gate keeps passing, every test keeps
+# passing, and coverage silently collapses to top-level assertions only --
+# every bare assertion inside `validate_surface_metadata`, `assert_reusable_ref`,
+# `assert_stub_is_thin` and the other function bodies goes back to exiting 1
+# with no output. Measured both ways on the same fixture: without `-E` a
+# failing assertion inside a function gives `exit=1` and zero output; with it,
+# the named message. tests/test_check_assertion_messages.sh pins this, because
+# a flag whose removal causes no test to fail is a flag that gets removed.
+set -Eeuo pipefail
+
+# Name the assertion that failed. This gate is mostly bare `grep -q` and
+# `jq -e` calls whose only output is an exit status; there were ~70 such sites
+# when this was added, so a contributor who tripped one got a non-zero exit and
+# nothing else -- not the file, not the expectation, not a line number. Finding
+# the cause meant `bash -x bin/check 2>&1 | tail -20`, twice, in real work.
+#
+# A trap rather than ~70 per-site messages: it covers the assertions written
+# after this one too, so the convention is structural instead of remembered.
+# `$BASH_COMMAND` already carries the file path in nearly all of these, which
+# is most of what "name the file and the expectation" asks for. Guarded
+# contexts (`if grep -q`, `|| true`, `! grep -q`, `|| { echo; exit 1; }`,
+# `$(... || true)`) do not fire it, so assertions that handle their own failure
+# are unaffected and messages already written are not duplicated.
+#
+# dr-agents#457 also asked whether to add a guard rejecting newly introduced
+# bare assertions. Deliberately not added: the trap makes a bare assertion
+# report itself, so there is no longer a convention for a guard to enforce.
+# Machinery defending a rule that enforces itself is machinery to maintain for
+# nothing.
+trap 'bin_check_status=$?; echo "bin/check: assertion failed (line $LINENO, exit $bin_check_status): $BASH_COMMAND" >&2' ERR
 
 # Labels recognized by this catalog. Update when a new label is added to the
 # repository so bin/check can validate that profile-referenced labels are known.
@@ -674,7 +705,8 @@ done
 # adapter version. This avoids publishing a catalog whose public installation
 # surface differs from its source tree.
 jq -e '.name == "cody-dr" and (.version | type == "string") and .skills == "./skills/" and .agents == "./agents/"' \
-  plugins/cody-dr/.codex-plugin/plugin.json >/dev/null
+  plugins/cody-dr/.codex-plugin/plugin.json >/dev/null ||
+  { echo "manifest: plugins/cody-dr/.codex-plugin/plugin.json must declare name, version, skills dir, and an agents DIRECTORY string" >&2; exit 1; }
 # dr-agents#436: this asserted `has("agents") | not`, so the gate REQUIRED the
 # asymmetry rather than merely failing to notice it. Claudio ships seven agents
 # and declared none; they loaded by Claude Code's convention-based discovery,
