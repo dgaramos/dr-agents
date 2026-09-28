@@ -175,6 +175,7 @@ readonly required_paths=(
   "bin/drift"
   ".github/scripts/verify-catalog-parity.sh"
   "tests/test_verify_catalog_parity.sh"
+  "tests/test_guarded_assertions.sh"
   "bin/install"
   "bin/update"
   "bin/sync-plugin-core-bundles.sh"
@@ -2009,6 +2010,42 @@ while IFS= read -r catalog_skill; do
 done < <(find plugins/claudio-dr/skills -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)
 
 if [[ "$repo_surface_failed" == "1" ]]; then
+  exit 1
+fi
+
+# dr-agents#457: bash suppresses `set -e` through the ENTIRE body of a function
+# invoked in a guarded context -- `f || echo`, `if f`, `f && g`. A bare
+# assertion inside such a function does not abort; the body runs past it and the
+# function returns only its last command's status. The assertions stop enforcing
+# and nothing says so.
+#
+# Every assertion-carrying function here is currently invoked unguarded, so the
+# gap is latent rather than active. It becomes real the moment someone writes
+# `validate_surface_metadata . || echo "..."`, which is a natural thing to reach
+# for when adding a fallback. This rejects that call site instead of trusting it
+# not to appear.
+#
+# Both sets are derived from this file: the function names from their
+# definitions, the call sites from the text. Nothing is enumerated, so a
+# function added tomorrow is covered by existing.
+guarded_assertion_calls() {
+  local self="$1" fn
+  while IFS= read -r fn; do
+    [[ -n "$fn" ]] || continue
+    # A guarded invocation is the name preceded by `if`/`while`/`!` or followed
+    # by `||`/`&&`. Definitions and comments are excluded.
+    grep -nE "(^|[[:space:]])(if|while|!)[[:space:]]+${fn}([[:space:]]|$)|(^|[[:space:]])${fn}([[:space:]][^|&]*)?[[:space:]]*(\|\||&&)" "$self" \
+      | grep -v "^[0-9]*:[[:space:]]*#" \
+      | grep -v "${fn}() {" \
+      | sed "s|^|${fn}: |" || true
+  done < <(grep -oE '^(assert|validate|compare)_[a-z_]+\(\)' "$self" | sed 's/()//')
+}
+
+guarded_calls="$(guarded_assertion_calls "$0")"
+if [[ -n "$guarded_calls" ]]; then
+  echo "guarded assertion: these functions carry assertions that stop enforcing when invoked in a guarded context (set -e is suppressed through the whole body):" >&2
+  printf '%s\n' "$guarded_calls" >&2
+  echo "guarded assertion: call them unguarded, or have them report and return a status the caller checks explicitly" >&2
   exit 1
 fi
 
