@@ -41,49 +41,112 @@ esac
 # derived. So this selects by position in the JSON object, not by textual order.
 #
 # jq when it is available, an awk fallback when it is not, following the two
-# branches bin/install's readers already use — jq is not a dependency of this
+# branches bin/install's reader already uses — jq is not a dependency of this
 # repository, and a jq-only parser here would fail bin/check on a machine where
 # it currently passes. The awk branch tracks brace depth outside string literals
 # and accepts "version" only at depth 1, so the two branches answer the same on
-# every manifest; tests/test_stamp_workflow_versions.sh asserts that agreement.
+# every manifest; tests/test_json_top_level_string.sh asserts that agreement
+# across both scripts and both branches over one shared fixture set.
 #
 # Both branches print nothing when the field is absent or is not a string, and
 # the caller treats that as an error rather than stamping an empty marker.
+#
+# bin/install sources nothing on purpose — `--download` installs it standalone —
+# so this reader is necessarily a second copy of the one there. Keep the awk
+# program below byte-identical to bin/install's.
+#
+# A JSON escape is an ENCODING, not quoting to discard. An earlier revision of
+# this reader appended the character after the backslash unchanged. That is
+# right for `\"` and `\\` — the two escapes where discarding and decoding
+# coincide, which is why it looked correct — and wrong for every other one:
+# `\u0031` read as `u0031` where jq reads `1`, `\n` as `n`, `\t` as `t`.
+# Measured on dr-agents#466.
+#
+# So the accepted domain is stated rather than approximated: a decoded value
+# made only of printable ASCII (0x20-0x7E). Inside it the fallback decodes
+# exactly — `\"`, `\\`, `\/`, and `\uXXXX` whose code point lands in the range.
+# Outside it the fallback REFUSES: non-zero status, no output.
+#
+# Refusing was chosen over decoding everything. Emitting non-ASCII from awk
+# means emitting UTF-8 bytes, and `sprintf("%c", n)` for n > 127 is
+# implementation-defined — gawk yields a locale-encoded wide character, BWK awk
+# a raw byte — so an awk decoder covering the whole BMP and surrogate pairs
+# would be right on one awk and quietly wrong on another. That is this same
+# defect in a new shape. The values actually read are a plugin version (semver
+# in practice), an installed manifest's version and a release `tag_name`; none
+# is expected to leave printable ASCII. The binding constraint is that the two
+# branches must never disagree in silence: a loud failure is acceptable, a
+# wrong version is not.
+#
+# The jq branch enforces the same domain with `explode`, so it refuses exactly
+# what the fallback refuses instead of quietly accepting what awk cannot
+# represent.
 plugin_manifest_version() {
   local plugin="$1" manifest version
   for manifest in "plugins/$plugin"/.*-plugin/plugin.json; do
     [[ -e "$manifest" ]] || continue
 
     if command -v jq >/dev/null 2>&1; then
-      version="$(jq -er '.version | strings' "$manifest" 2>/dev/null)" || version=""
+      version="$(jq -er '.version | strings | select(all(explode[]; . >= 32 and . <= 126))' "$manifest" 2>/dev/null)" || version=""
     else
-      version="$(awk '
-        { buf = buf $0 "\n" }
-        END {
-          n = length(buf)
-          for (i = 1; i <= n; i++) {
-            c = substr(buf, i, 1)
-            if (instr) {
-              if (c == "\\") { tok = tok substr(buf, i + 1, 1); i++; continue }
-              if (c == "\"") {
-                instr = 0
-                if (want) { print tok; exit 0 }
-                key = tok
+      version="$(awk -v field="version" '
+      function hexval(s,   k, d, v) {
+        v = 0
+        for (k = 1; k <= length(s); k++) {
+          d = index("0123456789abcdef", tolower(substr(s, k, 1)))
+          if (d == 0) return -1
+          v = v * 16 + (d - 1)
+        }
+        return v
+      }
+      { buf = buf $0 "\n" }
+      END {
+        n = length(buf)
+        for (i = 1; i <= n; i++) {
+          c = substr(buf, i, 1)
+          if (instr) {
+            if (c == "\\") {
+              e = substr(buf, i + 1, 1)
+              if (e == "\"" || e == "\\" || e == "/") { tok = tok e; i++; continue }
+              if (e == "u") {
+                hex = substr(buf, i + 2, 4)
+                cp = -1
+                if (hex ~ /^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$/) cp = hexval(hex)
+                if (cp >= 32 && cp <= 126) { tok = tok sprintf("%c", cp); i += 5; continue }
+                # A code point outside printable ASCII (including either half of
+                # a surrogate pair), or a malformed escape: refuse rather than
+                # answer differently from jq.
+                if (want) { exit 1 }
+                i += 5
                 continue
               }
-              tok = tok c
+              # \b \f \n \r \t, or an invalid escape: not printable ASCII.
+              if (want) { exit 1 }
+              i++
               continue
             }
-            if (c == "\"") { instr = 1; tok = ""; continue }
-            # A non-string where a string value was expected: .version exists
-            # but is a number, object, array, or null. Print nothing.
-            if (want && c !~ /[ \t\r\n]/) { exit 1 }
-            if (c == "{" || c == "[") { depth++; continue }
-            if (c == "}" || c == "]") { depth--; continue }
-            if (c == ":") { if (depth == 1 && key == "version") want = 1; continue }
+            if (c == "\"") {
+              instr = 0
+              if (want) { print tok; exit 0 }
+              key = tok
+              continue
+            }
+            # A raw byte outside printable ASCII would also leave the accepted
+            # domain, and jq refuses it, so this does too.
+            if (want && c !~ /[ -~]/) { exit 1 }
+            tok = tok c
+            continue
           }
-          exit 1
+          if (c == "\"") { instr = 1; tok = ""; continue }
+          # A non-string where the value was expected: the field exists but is a
+          # number, object, array or null. Print nothing.
+          if (want && c !~ /[ \t\r\n]/) { exit 1 }
+          if (c == "{" || c == "[") { depth++; continue }
+          if (c == "}" || c == "]") { depth--; continue }
+          if (c == ":") { if (depth == 1 && key == field) want = 1; continue }
         }
+        exit 1
+      }
       ' "$manifest")" || version=""
     fi
 

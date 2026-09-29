@@ -88,6 +88,14 @@ check_fixture() {
   printf '%s' "$json" > "$tmp/one.json"
   printf '%s' "$json" > "$plugin_tree/plugins/p-dr/.x-plugin/plugin.json"
 
+  # A fixture that does not contain what it is believed to contain produces a
+  # passing test over nothing. `printf '%s'` must not have eaten the backslash,
+  # so when the literal declares one, assert the byte reached the file.
+  if [[ "$json" == *'\'* ]] && ! grep -q '\\' "$tmp/one.json"; then
+    fail "$name: fixture lost its backslash on disk; the assertion would be vacuous"
+    return
+  fi
+
   local a b c d
   a="$(bash "$tmp/run-install.sh" "$install_reader" "$tmp/one.json" 2>/dev/null || true)"
   b="$(env PATH="$nojq_bin" bash "$tmp/run-install.sh" "$install_reader" "$tmp/one.json" 2>/dev/null || true)"
@@ -107,6 +115,35 @@ check_fixture() {
     fail "$name: expected '${expected:-<none>}', all readers returned '${a:-<none>}'"; return
   fi
   pass "$name -> ${a:-<nothing>}"
+}
+
+# A refusal is an outcome in its own right: non-zero status AND no output, from
+# all four readings. Asserting only the empty string would let a reader that
+# exits zero with nothing pass, and callers branch on the status.
+check_refusal() {
+  local name="$1" json="$2"
+  printf '%s' "$json" > "$tmp/one.json"
+  printf '%s' "$json" > "$plugin_tree/plugins/p-dr/.x-plugin/plugin.json"
+  if [[ "$json" == *'\'* ]] && ! grep -q '\\' "$tmp/one.json"; then
+    fail "$name: fixture lost its backslash on disk; the assertion would be vacuous"
+    return
+  fi
+
+  local label out status bad=0
+  for label in "install:jq" "install:no-jq" "stamp:jq" "stamp:no-jq"; do
+    case "$label" in
+      "install:jq")    out="$(bash "$tmp/run-install.sh" "$install_reader" "$tmp/one.json" 2>/dev/null)" && status=0 || status=$? ;;
+      "install:no-jq") out="$(env PATH="$nojq_bin" bash "$tmp/run-install.sh" "$install_reader" "$tmp/one.json" 2>/dev/null)" && status=0 || status=$? ;;
+      "stamp:jq")      out="$(bash "$tmp/run-stamp.sh" "$plugin_tree" "$stamp_reader" 2>/dev/null)" && status=0 || status=$? ;;
+      "stamp:no-jq")   out="$(env PATH="$nojq_bin" bash "$tmp/run-stamp.sh" "$plugin_tree" "$stamp_reader" 2>/dev/null)" && status=0 || status=$? ;;
+    esac
+    if [[ "$status" -eq 0 ]]; then
+      fail "$name [$label]: expected a refusal, got exit 0 with '${out}'"; bad=1
+    elif [[ -n "$out" ]]; then
+      fail "$name [$label]: refused with exit $status but printed '${out}'"; bad=1
+    fi
+  done
+  [[ "$bad" -eq 0 ]] && pass "$name -> refused by all four readings"
 }
 
 # The defect that started this: a nested version ahead of the real one.
@@ -130,6 +167,55 @@ check_fixture "escaped quotes forming a decoy in a string" \
   '{"desc":"a \"version\": \"0.0.0\" trap","version":"6.0.0"}' "6.0.0"
 check_fixture "a brace inside a string value" \
   '{"desc":"an unbalanced { brace","version":"6.5.0"}' "6.5.0"
+
+# ---------------------------------------------------------------------------
+# Escape encodings (dr-agents#466, second finding on bin/install:120).
+#
+# A JSON escape is an encoding, not quoting to discard. Appending the character
+# after the backslash unchanged is right for `\"` and `\\` and wrong for every
+# other escape, which is why the fixtures above — all of which use only those
+# two — passed over the defect. `\u0031` read as `u0031`, `\n` as `n`, `\t` as
+# `t`. A differential harness can only find a case somebody wrote down, so the
+# cases are written down here.
+#
+# The readers accept a decoded value of printable ASCII (0x20-0x7E) and refuse
+# anything else, loudly, in BOTH branches. Decoded first, then the refusals.
+# ---------------------------------------------------------------------------
+
+check_fixture "escaped quote in the value" \
+  '{"version":"a\"b"}' 'a"b'
+check_fixture "escaped backslash in the value" \
+  '{"version":"a\\b"}' 'a\b'
+check_fixture "escaped solidus in the value" \
+  '{"version":"a\/b"}' 'a/b'
+check_fixture "a \u escape decodes, it is not discarded" \
+  '{"version":"\u0031.2.3"}' "1.2.3"
+check_fixture "\u escape mid-value" \
+  '{"version":"v\u002d1"}' "v-1"
+check_fixture "several escapes in one value" \
+  '{"version":"\u0061\/b\\c\"d"}' 'a/b\c"d'
+
+# Escapes the fallback cannot represent as printable ASCII. Both branches must
+# refuse: non-zero status and no output, never a value that differs between them.
+check_refusal "a \n escape in the value" '{"version":"1.2.3\n"}'
+check_refusal "a \t escape in the value" '{"version":"a\tb"}'
+check_refusal "a \b escape in the value" '{"version":"a\bb"}'
+check_refusal "a \f escape in the value" '{"version":"a\fb"}'
+check_refusal "a \r escape in the value" '{"version":"a\rb"}'
+check_refusal "a non-ASCII BMP code point" '{"version":"café"}'
+check_refusal "an astral-plane surrogate pair" '{"version":"a😀b"}'
+check_refusal "a lone high surrogate" '{"version":"a\ud83db"}'
+check_refusal "a malformed \u escape" '{"version":"a\u00ZZb"}'
+check_refusal "an undefined escape" '{"version":"a\qb"}'
+check_refusal "a raw non-ASCII byte in the value" '{"version":"cafÃ©"}'
+
+# An escape the fallback refuses inside some OTHER string must not poison the
+# read: jq only looks at the top-level field, so the fallback must not refuse
+# more than jq does.
+check_fixture "unrepresentable escapes in an unrelated string" \
+  '{"desc":"café and a \t tab and 😀","version":"9.1.0"}' "9.1.0"
+check_fixture "escaped newline in an unrelated string" \
+  '{"desc":"one\ntwo","version":"9.2.0"}' "9.2.0"
 
 # A longer key that merely contains the field name must not match.
 check_fixture "schemaVersion before version" \
