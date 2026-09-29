@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+#
+# Stamp each managed publisher stub with its plugin's catalog version.
+#
+# The marker on line 1 of every plugins/*/workflows/publish-*.yml is what
+# bin/install reads to detect drift without a full file diff, so it must equal
+# the version in that plugin's manifest. It used to be maintained by hand and
+# held in place by an assertion in bin/check, which names a defect without
+# being able to correct it and drifts the moment a plugin or a stub is added.
+#
+# This derives it instead. The plugin set comes from plugins/*/workflows/, the
+# version comes from that plugin's own manifest, and the manifest's filename is
+# globbed rather than enumerated because the two adapters do not share it
+# (.claude-plugin vs .codex-plugin).
+#
+#   bin/stamp-workflow-versions            rewrite every stub's marker
+#   bin/stamp-workflow-versions --check    report stale markers, write nothing
+#
+# --check is what bin/check calls: a generated-file check, so a hand edit to a
+# marker fails the gate the same way a forgotten bump does, and a new adapter or
+# a new stub is covered without anything being added here.
+
+set -euo pipefail
+
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repository_root"
+
+check_only=0
+case "${1:-}" in
+  --check) check_only=1 ;;
+  "")      ;;
+  *)       echo "usage: bin/stamp-workflow-versions [--check]" >&2; exit 2 ;;
+esac
+
+# The version field of a plugin's manifest, wherever that manifest lives.
+plugin_manifest_version() {
+  local plugin="$1" manifest
+  for manifest in "plugins/$plugin"/.*-plugin/plugin.json; do
+    [[ -e "$manifest" ]] || continue
+    grep '"version"' "$manifest" | head -1 \
+      | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+    return 0
+  done
+  echo "no plugin manifest under plugins/$plugin/.*-plugin/plugin.json" >&2
+  return 1
+}
+
+stale=0
+stamped=0
+considered=0
+
+for stub in plugins/*/workflows/publish-*.yml; do
+  [[ -e "$stub" ]] || continue
+  considered=$((considered + 1))
+
+  # plugins/<plugin>/workflows/<file>.yml
+  rest="${stub#plugins/}"
+  plugin="${rest%%/*}"
+
+  version="$(plugin_manifest_version "$plugin")"
+  if [[ -z "$version" ]]; then
+    echo "could not read a version for plugin '$plugin'" >&2
+    exit 1
+  fi
+  want="# $plugin: v$version"
+
+  have="$(head -1 "$stub")"
+  [[ "$have" == "$want" ]] && continue
+
+  if [[ "$check_only" == "1" ]]; then
+    # A marker that is absent and one that names the wrong version are the same
+    # defect to the installer, so they are reported the same way.
+    echo "stale marker: $stub" >&2
+    echo "  line 1 is   '$have'" >&2
+    echo "  derived is  '$want'" >&2
+    stale=$((stale + 1))
+    continue
+  fi
+
+  # Replace line 1 when it is already a marker for this plugin; otherwise the
+  # stub has never been stamped, so prepend rather than destroy a real line.
+  tmp="$(mktemp)"
+  if [[ "$have" == "# $plugin: v"* ]]; then
+    { printf '%s\n' "$want"; tail -n +2 "$stub"; } > "$tmp"
+  else
+    { printf '%s\n' "$want"; cat "$stub"; } > "$tmp"
+  fi
+  mv "$tmp" "$stub"
+  echo "stamped  $stub  ($want)"
+  stamped=$((stamped + 1))
+done
+
+if [[ "$considered" -eq 0 ]]; then
+  echo "no publisher stubs found under plugins/*/workflows/" >&2
+  exit 1
+fi
+
+if [[ "$stale" -gt 0 ]]; then
+  echo "" >&2
+  echo "$stale stub marker(s) do not match their plugin manifest." >&2
+  echo "Run bin/stamp-workflow-versions to derive them, then commit the result." >&2
+  exit 1
+fi
+
+if [[ "$check_only" == "1" ]]; then
+  echo "workflow version markers: $considered stub(s) match their plugin manifest"
+elif [[ "$stamped" -eq 0 ]]; then
+  echo "workflow version markers: already derived ($considered stub(s))"
+fi
