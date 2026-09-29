@@ -454,16 +454,68 @@ state_has_unrepresentable_escape() {
   # `|| true`: on a PATH without grep it silently found nothing and reported the
   # file clean, which is the same class of defect it exists to catch. bash is
   # already a hard requirement of this script, so this depends on nothing else.
-  local text rest hex cp
+  #
+  # It walks the text as a JSON grammar rather than searching it for the two
+  # characters `\u`. A substring scan is wrong twice over, and dr-agents#469
+  # measured the first one: `"/a\\u00e9x"` is a backslash that is itself
+  # escaped followed by the literal text `u00e9x`, which jq reads as the
+  # six-character suffix with no decoding at all, and the scan found the second
+  # backslash, parsed `00e9` and refused a healthy installation. Honouring
+  # backslash parity alone would fix that case.
+  #
+  # Parity alone is NOT what is implemented, and the reason is the point.
+  # Parity is only meaningful inside a JSON string, because that is the only
+  # place a backslash begins an escape; a backslash anywhere else is not
+  # invalid-but-harmless, it makes the parity state of everything after it
+  # meaningless. Tracking `instr` is what makes the question the scanner asks
+  # ("is this an escape?") the same question JSON answers, instead of an
+  # approximation of it that happens to agree on today's fixtures. This is the
+  # fourth instance of one root error in this file -- treating JSON as text to
+  # pattern-match rather than as a grammar to parse -- so the fix is the
+  # grammar, not the symptom. The two decoders this guard protects already walk
+  # this way, which is why neither had the defect.
+  local text n i c e hex cp instr
   text="$(cat "$file")" || return 1
-  rest="$text"
-  while [[ "$rest" == *'\u'* ]]; do
-    rest="${rest#*\u}"
-    hex="${rest:0:4}"
-    if [[ "$hex" == [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f] ]]; then
-      cp=$((16#$hex))
-      (( cp > 127 )) && return 0
+
+  # Every escape begins with a backslash, so a file without one cannot contain
+  # an escape. This is a sound precondition rather than the decision itself —
+  # the walk below is what answers the question — and it keeps the common case
+  # O(1): Claude Code's JSON.stringify emits non-ASCII raw, so a real state file
+  # normally has no backslash at all. The character walk is O(n^2) in bash
+  # substring extraction (1.5s on a synthetic 23KB file, 12ms on the 405-byte
+  # file actually written here), which is affordable only because it is rare.
+  [[ "$text" == *'\'* ]] || return 1
+
+  n=${#text}
+  i=0
+  instr=0
+  while (( i < n )); do
+    c="${text:i:1}"
+    if (( instr )); then
+      if [[ "$c" == '\' ]]; then
+        # An escape consumes its backslash AND the character it escapes, so a
+        # `\\` can never be mistaken for the start of a `\u`.
+        e="${text:i+1:1}"
+        if [[ "$e" == "u" ]]; then
+          hex="${text:i+2:4}"
+          if [[ "$hex" == [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f] ]]; then
+            cp=$((16#$hex))
+            (( cp > 127 )) && return 0
+            i=$(( i + 6 ))
+            continue
+          fi
+          # A malformed `\u`: not an escape awk cannot emit. Both branches
+          # already agree on it, so it is not this guard's business.
+        fi
+        i=$(( i + 2 ))
+        continue
+      fi
+      [[ "$c" == '"' ]] && instr=0
+      i=$(( i + 1 ))
+      continue
     fi
+    [[ "$c" == '"' ]] && instr=1
+    i=$(( i + 1 ))
   done
   return 1
 }

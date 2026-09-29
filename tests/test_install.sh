@@ -1028,6 +1028,32 @@ escape_case "u-escape-hyphen" "\"version\":\"1.0.0${bs}u002d1\"" version "1.0.0-
 escape_case "escaped-slash" "\"installPath\":\"${bs}/Users${bs}/d\"" installPath "/Users/d" 0
 escape_case "escaped-quote" "\"version\":\"a${bs}\"b\"" version 'a"b' 0
 escape_case "escaped-backslash" "\"version\":\"a${bs}${bs}b\"" version 'a\b' 0
+
+# dr-agents#469: an escaped backslash is not the start of an escape. The guard
+# state_has_unrepresentable_escape() used to search the raw text for the two
+# characters backslash-u without asking whether that backslash was itself
+# escaped, so the three cases below -- all valid, all decoding to something the
+# awk branch can emit or must refuse -- were answered by a scan of the file
+# rather than by the grammar. The first was measured refusing a healthy
+# installPath outright. Each body assembles every backslash from $bs, so no
+# backslash-u sequence exists in this source for the toolchain to decode on its
+# way to disk; the vacuousness check above still applies to all three.
+#
+# Two backslashes then literal `u00e9x`: jq decodes the pair to one backslash
+# and reads the rest as six ordinary characters. Nothing is escaped, so nothing
+# is unrepresentable, and both branches must return the value.
+escape_case "escaped-backslash-then-literal-u" \
+  "\"installPath\":\"/a${bs}${bs}u00e9x\"" installPath "/a${bs}u00e9x" 0
+# Three backslashes then `u0041b`: the first two decode to one backslash, the
+# third begins a REAL escape that lands in printable ASCII. Parity has to be
+# tracked, not assumed in either direction.
+escape_case "escaped-backslash-then-real-escape" \
+  "\"version\":\"a${bs}${bs}${bs}u0041b\"" version "a${bs}Ab" 0
+# The same shape with a non-ASCII code point: here the escape IS real and IS
+# unrepresentable, so the guard must fire. This is the case a parity fix could
+# break by skipping one backslash too many.
+escape_case "triple-backslash-non-ascii" \
+  "\"installPath\":\"/a${bs}${bs}${bs}u00e9x\"" installPath "" 1
 escape_case "tab-in-path" "\"installPath\":\"/a${bs}tb\"" installPath "$(printf '/a\tb')" 0
 escape_case "escaped-non-ascii" "\"installPath\":\"/Users/Jos${bs}u00e9x\"" installPath "" 1
 escape_case "surrogate-pair" "\"installPath\":\"${bs}ud83d${bs}ude00\"" installPath "" 1
@@ -1041,8 +1067,8 @@ escape_case "malformed-u" "\"version\":\"${bs}uZZ99\"" version "" 0
 # emits non-ASCII unescaped. It must survive both branches untouched: refusing it
 # would reject a valid installation under an accented home directory.
 escape_case "raw-utf8-path" '"installPath":"/Users/José/x"' installPath "/Users/José/x" 0
-[[ "$escape_checked" -eq 11 ]] \
-  || { echo "FAIL: escape differential checked $escape_checked cases, expected 11" >&2; exit 1; }
+[[ "$escape_checked" -eq 14 ]] \
+  || { echo "FAIL: escape differential checked $escape_checked cases, expected 14" >&2; exit 1; }
 echo "ok: escape differential: $escape_checked cases agree across both branches"
 
 # Guard the guard: the differential is worthless if the no-jq run silently
