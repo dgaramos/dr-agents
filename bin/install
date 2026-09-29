@@ -99,6 +99,93 @@ cody_version() {
   fi
 }
 
+# The one place the "which claudio-dr@dr-agents entry does Claude use?"
+# question is answered. Claude Code records an array per plugin key, and the
+# global installation is the `scope == "user"` entry; a project-scoped entry
+# can precede it.
+#
+# This rule used to be written twice per reader, once in jq and once in awk,
+# and the two drifted: the jq branch selected the user-scoped entry while the
+# awk fallback took whichever field appeared first (dr-agents#461). Only the
+# jq branch was ever exercised, so the fallback was wrong in silence. The rule
+# now exists once per parser, parameterized by field, and tests/test_install.sh
+# asserts the two parsers agree on the same fixtures rather than checking each
+# on its own.
+#
+# Prints the field of the selected entry, or nothing.
+registered_claudio_field() {
+  local state="$1"
+  local field="$2"
+
+  [[ -f "${state}" ]] || return 0
+
+  local value=""
+  if command -v jq >/dev/null 2>&1; then
+    value="$(jq -r --arg field "${field}" '
+      (.plugins["claudio-dr@dr-agents"] // [])
+      | (map(select(.scope == "user")) + .)
+      | map(.[$field] // empty)
+      | first // empty
+    ' "${state}" 2>/dev/null || true)"
+  else
+    # Without jq, slurp the file and walk the plugin's array string-aware.
+    # Line-oriented matching cannot do this: a single-line state file puts
+    # every plugin's fields on one line, and scope selection needs entry
+    # boundaries, not the first match after a key.
+    value="$(awk -v field="${field}" '
+      { buf = buf $0 "\n" }
+      END {
+        key = index(buf, "\"claudio-dr@dr-agents\"")
+        if (key == 0) exit
+        rest = substr(buf, key)
+        open = index(rest, "[")
+        if (open == 0) exit
+        rest = substr(rest, open)
+
+        n = length(rest); depth = 0; instr = 0; start = 0; count = 0
+        for (i = 1; i <= n; i++) {
+          c = substr(rest, i, 1)
+          if (instr) {
+            if (c == "\\") { i++; continue }
+            if (c == "\"") instr = 0
+            continue
+          }
+          if (c == "\"") { instr = 1; continue }
+          if (c == "{") { if (depth == 0) start = i; depth++; continue }
+          if (c == "}") {
+            depth--
+            if (depth == 0) entries[++count] = substr(rest, start, i - start + 1)
+            continue
+          }
+          # The array closes at depth 0. Stopping there is part of the rule:
+          # without it a later plugin key supplies the field.
+          if (c == "]" && depth == 0) break
+        }
+
+        chosen = ""
+        for (i = 1; i <= count; i++) {
+          if (match(entries[i], /"scope"[[:space:]]*:[[:space:]]*"user"/)) {
+            chosen = entries[i]
+            break
+          }
+        }
+        if (chosen == "" && count > 0) chosen = entries[1]
+        if (chosen == "") exit
+
+        pattern = "\"" field "\"[[:space:]]*:[[:space:]]*\"[^\"]*\""
+        if (!match(chosen, pattern)) exit
+        f = substr(chosen, RSTART, RLENGTH)
+        sub(/^"[^"]*"[[:space:]]*:[[:space:]]*"/, "", f)
+        sub(/"$/, "", f)
+        print f
+      }
+    ' "${state}" 2>/dev/null || true)"
+  fi
+
+  [[ -n "${value}" && "${value}" != "null" ]] && printf '%s\n' "${value}"
+  return 0
+}
+
 # Resolve the Claudio DR installation the Claude marketplace actually
 # registered. The authoritative record is Claude Code's own plugin state at
 # plugins/installed_plugins.json, which names the install path of
@@ -115,33 +202,7 @@ registered_claudio_cache() {
 
   if [[ -f "${state}" ]]; then
     local recorded=""
-    if command -v jq >/dev/null 2>&1; then
-      recorded="$(jq -r '
-        (.plugins["claudio-dr@dr-agents"] // [])
-        | (map(select(.scope == "user")) + .)
-        | map(.installPath // empty)
-        | first // empty
-      ' "${state}" 2>/dev/null || true)"
-    else
-      # Without jq, scan from the claudio-dr@dr-agents key onwards. The trim
-      # matters on a single-line state file, where an earlier plugin's
-      # installPath would otherwise match on the same line.
-      recorded="$(awk '
-        !seen {
-          key = index($0, "\"claudio-dr@dr-agents\"")
-          if (key == 0) next
-          seen = 1
-          $0 = substr($0, key)
-        }
-        match($0, /"installPath"[[:space:]]*:[[:space:]]*"[^"]*"/) {
-          field = substr($0, RSTART, RLENGTH)
-          sub(/^"installPath"[[:space:]]*:[[:space:]]*"/, "", field)
-          sub(/"$/, "", field)
-          print field
-          exit
-        }
-      ' "${state}" 2>/dev/null || true)"
-    fi
+    recorded="$(registered_claudio_field "${state}" installPath)"
     if [[ -n "${recorded}" && "${recorded}" != "null" ]]; then
       printf '%s\n' "${recorded%/}"
       return 0
@@ -183,7 +244,10 @@ registered_claudio_cache() {
 # the `install` dispatch re-records first, measured — but it is one more
 # reason this reading should not be derived through that helper.
 #
-# Selects the same entry registered_claudio_cache selects (user scope first).
+# Selection is not restated here. Both this reader and
+# registered_claudio_cache() ask registered_claudio_field() which entry Claude
+# uses, so the two cannot answer differently — and neither can the jq and awk
+# branches, because tests/test_install.sh runs the same fixtures through both.
 # Prints nothing when no version is recorded.
 registered_claudio_version() {
   local claude_config="$1"
@@ -192,32 +256,7 @@ registered_claudio_version() {
   [[ -f "${state}" ]] || return 0
 
   local recorded=""
-  if command -v jq >/dev/null 2>&1; then
-    recorded="$(jq -r '
-      (.plugins["claudio-dr@dr-agents"] // [])
-      | (map(select(.scope == "user")) + .)
-      | map(.version // empty)
-      | first // empty
-    ' "${state}" 2>/dev/null || true)"
-  else
-    # Same trim as registered_claudio_cache: start at the claudio-dr key so an
-    # earlier plugin's version field on a single-line state file cannot match.
-    recorded="$(awk '
-      !seen {
-        key = index($0, "\"claudio-dr@dr-agents\"")
-        if (key == 0) next
-        seen = 1
-        $0 = substr($0, key)
-      }
-      match($0, /"version"[[:space:]]*:[[:space:]]*"[^"]*"/) {
-        field = substr($0, RSTART, RLENGTH)
-        sub(/^"version"[[:space:]]*:[[:space:]]*"/, "", field)
-        sub(/"$/, "", field)
-        print field
-        exit
-      }
-    ' "${state}" 2>/dev/null || true)"
-  fi
+  recorded="$(registered_claudio_field "${state}" version)"
 
   [[ -n "${recorded}" && "${recorded}" != "null" ]] && printf '%s\n' "${recorded}"
   return 0

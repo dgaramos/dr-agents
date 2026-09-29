@@ -13,7 +13,9 @@ state_file="$claude_config/plugins/installed_plugins.json"
 # fake must be the only thing that writes it.
 recorded_version() {
   [[ -f "$state_file" ]] || return 0
-  jq -r '(.plugins["claudio-dr@dr-agents"] // []) | map(.version // empty) | first // empty' \
+  jq -r '(.plugins["claudio-dr@dr-agents"] // [])
+          | (map(select(.scope == "user")) + .)
+          | map(.version // empty) | first // empty' \
     "$state_file" 2>/dev/null || true
 }
 
@@ -29,8 +31,18 @@ record_install() {
   rm -rf "$destination"
   cp -R "$source_dir" "$destination"
   mkdir -p "$claude_config/plugins"
+  # Only the user-scoped entry is re-recorded. Entries of other scopes — a
+  # project registration, say — survive, which is what the real CLI does and
+  # what makes a mixed-scope state reachable at all. A fake that flattened the
+  # array to one user entry could never stage the case dr-agents#461 is about.
+  local existing_others='[]'
+  if [[ -f "$state_file" ]]; then
+    existing_others="$(jq -c '(.plugins["claudio-dr@dr-agents"] // []) | map(select(.scope != "user"))' \
+      "$state_file" 2>/dev/null || echo '[]')"
+  fi
   jq -n --arg path "$destination" --arg version "$version" \
-    '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+    --argjson others "${existing_others:-[]}" \
+    '{version: 2, plugins: {"claudio-dr@dr-agents": ($others + [{scope: "user", installPath: $path, version: $version}])}}' \
     > "$state_file"
   printf '%s\n' "$version"
 }

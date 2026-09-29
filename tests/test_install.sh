@@ -658,4 +658,192 @@ if echo "$install_repeat_out" | grep -qi "mutually exclusive"; then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# dr-agents#461: the jq and awk readings of installed_plugins.json must agree
+#
+# The gate's selection rule — "the user-scoped claudio-dr@dr-agents entry, or
+# the first entry when there is none" — is implemented twice, once in jq and
+# once in awk. Only the jq branch runs on a developer machine, so a fallback
+# that selects differently is wrong in silence: that is exactly how the
+# user-scope selection ended up missing from the awk branch.
+#
+# So this does not check the two branches separately against expected values.
+# It runs every fixture through BOTH and asserts they answer the same thing,
+# then checks that one shared answer. A fixture added here is automatically
+# covered on both branches, and a future field added to
+# registered_claudio_field() inherits the same comparison.
+# ---------------------------------------------------------------------------
+readers="$tmp/readers.sh"
+awk '
+  /^registered_claudio_field\(\) \{$/ { inside = 1 }
+  inside { print }
+  inside && /^\}$/ { exit }
+' "$repository_root/bin/install" > "$readers"
+grep -q '^registered_claudio_field() {$' "$readers" \
+  || { echo "FAIL: could not extract registered_claudio_field from bin/install" >&2; exit 1; }
+grep -q '^}$' "$readers" \
+  || { echo "FAIL: extracted registered_claudio_field is not closed" >&2; exit 1; }
+bash -n "$readers" \
+  || { echo "FAIL: extracted registered_claudio_field does not parse" >&2; exit 1; }
+
+# A PATH with the tools the awk branch needs and deliberately without jq.
+nojq_bin="$tmp/nojq-bin"
+mkdir -p "$nojq_bin"
+# bash itself must be on it too: the reader runs under this PATH, and a PATH
+# that cannot resolve the shell fails for the wrong reason.
+for tool in bash awk sed grep cat basename sort tail head printf dirname cmp; do
+  tool_path="$(command -v "$tool" 2>/dev/null)" || continue
+  ln -sf "$tool_path" "$nojq_bin/$tool"
+done
+if PATH="$nojq_bin" command -v jq >/dev/null 2>&1; then
+  echo "FAIL: the no-jq PATH still resolves jq" >&2
+  exit 1
+fi
+
+read_field() {
+  # $1: PATH to run under, $2: state file, $3: field
+  PATH="$1" bash -c '
+    source "$1"
+    registered_claudio_field "$2" "$3"
+  ' _ "$readers" "$2" "$3"
+}
+
+fixtures="$tmp/reader-fixtures"
+mkdir -p "$fixtures"
+
+# Fixture: a project-scoped entry recorded BEFORE the user-scoped one. This is
+# the shape the no-jq probe on PR #461 failed on — the awk branch returned the
+# project entry while jq returned the user entry.
+jq -n '{
+  version: 2,
+  plugins: {
+    "some-other@dr-agents": [
+      {scope: "user", version: "9.9.9-other", installPath: "/other/path"}
+    ],
+    "claudio-dr@dr-agents": [
+      {scope: "project", version: "0.0.1-project", installPath: "/project/claudio-dr"},
+      {scope: "user", version: "0.1.43-user", installPath: "/user/claudio-dr"}
+    ],
+    "zz-later@dr-agents": [
+      {scope: "user", version: "7.7.7-later", installPath: "/later/path"}
+    ]
+  }
+}' > "$fixtures/mixed-scope.json"
+
+# The same state as Claude Code actually writes it: one line, no whitespace.
+jq -c . "$fixtures/mixed-scope.json" > "$fixtures/mixed-scope-compact.json"
+
+# Only a project entry: there is no user entry to prefer, so the rule falls
+# through to the first one. Without the array terminator the awk branch would
+# read the NEXT plugin key's field here.
+jq -n '{
+  version: 2,
+  plugins: {
+    "claudio-dr@dr-agents": [
+      {scope: "project", version: "0.0.1-project", installPath: "/project/claudio-dr"}
+    ],
+    "zz-later@dr-agents": [
+      {scope: "user", version: "7.7.7-later", installPath: "/later/path"}
+    ]
+  }
+}' > "$fixtures/project-only.json"
+
+# Nothing recorded for claudio-dr at all: both branches must print nothing
+# rather than borrowing another plugin's entry.
+jq -n '{
+  version: 2,
+  plugins: {
+    "zz-later@dr-agents": [
+      {scope: "user", version: "7.7.7-later", installPath: "/later/path"}
+    ]
+  }
+}' > "$fixtures/absent.json"
+
+# fixture | field | expected shared answer
+reader_cases=(
+  "mixed-scope.json|version|0.1.43-user"
+  "mixed-scope.json|installPath|/user/claudio-dr"
+  "mixed-scope-compact.json|version|0.1.43-user"
+  "mixed-scope-compact.json|installPath|/user/claudio-dr"
+  "project-only.json|version|0.0.1-project"
+  "project-only.json|installPath|/project/claudio-dr"
+  "absent.json|version|"
+  "absent.json|installPath|"
+)
+
+for reader_case in "${reader_cases[@]}"; do
+  IFS='|' read -r case_fixture case_field case_expected <<< "$reader_case"
+  case_state="$fixtures/$case_fixture"
+
+  with_jq="$(read_field "$PATH" "$case_state" "$case_field")"
+  without_jq="$(read_field "$nojq_bin" "$case_state" "$case_field")"
+
+  # The differential assertion. This is the one that would have caught #461.
+  [[ "$with_jq" == "$without_jq" ]] || {
+    echo "FAIL: jq and awk disagree on $case_fixture field $case_field:" >&2
+    echo "      jq   -> '$with_jq'" >&2
+    echo "      awk  -> '$without_jq'" >&2
+    exit 1
+  }
+  [[ "$with_jq" == "$case_expected" ]] || {
+    echo "FAIL: $case_fixture field $case_field read '$with_jq', expected '$case_expected'" >&2
+    exit 1
+  }
+done
+
+# Guard the guard: the differential is worthless if the no-jq run silently
+# used jq anyway. Prove the awk branch is the one that answered.
+PATH="$nojq_bin" bash -c '
+  source "$1"
+  command -v jq >/dev/null 2>&1 && exit 1
+  exit 0
+' _ "$readers" \
+  || { echo "FAIL: the no-jq reader run could still see jq" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# dr-agents#461: a healthy global install is not rejected because a
+# project-scoped entry happens to be recorded first.
+# ---------------------------------------------------------------------------
+mixed_home="$tmp/mixed-home"
+mixed_claude_dir="$mixed_home/.claude"
+mkdir -p "$mixed_home"
+( cd "$tmp" \
+  && HOME="$mixed_home" CODEX_CONFIG_DIR="$mixed_home/.codex" \
+     CLAUDE_CONFIG_DIR="$mixed_claude_dir" \
+     CODEX_CALL_LOG="$tmp/mixed-codex.log" CLAUDE_CALL_LOG="$tmp/mixed-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global >/dev/null 2>&1 )
+
+mixed_state="$mixed_claude_dir/plugins/installed_plugins.json"
+# Prepend a stale project-scoped registration to the healthy user-scoped one.
+jq '.plugins["claudio-dr@dr-agents"] =
+      ([{scope: "project", version: "0.0.1-project", installPath: "/project/claudio-dr"}]
+       + .plugins["claudio-dr@dr-agents"])' \
+  "$mixed_state" > "$mixed_state.tmp" && mv "$mixed_state.tmp" "$mixed_state"
+
+# Guard the fixture: the project entry must really come first, and the user
+# entry must really be current, or this proves nothing.
+[[ "$(jq -r '.plugins["claudio-dr@dr-agents"][0].scope' "$mixed_state")" == "project" \
+   && "$(jq -r 'first(.plugins["claudio-dr@dr-agents"][] | select(.scope == "user") | .version)' \
+         "$mixed_state")" == "$claudio_ver" ]] \
+  || { echo "FAIL: could not stage a mixed-scope recorded state" >&2; exit 1; }
+
+mixed_output="$( cd "$tmp" \
+  && HOME="$mixed_home" CODEX_CONFIG_DIR="$mixed_home/.codex" \
+     CLAUDE_CONFIG_DIR="$mixed_claude_dir" \
+     CODEX_CALL_LOG="$tmp/mixed-codex.log" CLAUDE_CALL_LOG="$tmp/mixed-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global 2>&1 )" || {
+  echo "FAIL: --global rejected a healthy install over a project-scoped entry" >&2
+  echo "$mixed_output" >&2
+  exit 1
+}
+echo "$mixed_output" | grep -q "Global install complete" \
+  || { echo "FAIL: mixed-scope --global did not complete; output: $mixed_output" >&2; exit 1; }
+# The project entry must survive the run: if the fake flattened it away, the
+# gate was never asked the mixed-scope question.
+[[ "$(jq -r '[.plugins["claudio-dr@dr-agents"][] | select(.scope == "project")] | length' \
+      "$mixed_state")" == "1" ]] \
+  || { echo "FAIL: the project-scoped entry did not survive --global" >&2; exit 1; }
+
 echo "bin/install tests passed"
