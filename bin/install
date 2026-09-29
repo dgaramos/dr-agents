@@ -78,25 +78,140 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# JSON top-level string reader
+# ---------------------------------------------------------------------------
+
+# Read a TOP-LEVEL string field out of a JSON file. Prints nothing and returns
+# non-zero when the field is absent, is not at the top level, or is not a
+# string.
+#
+# This exists because `grep '"version"' … | head -1 | sed …` selects by position
+# in the FILE, not position in the OBJECT. A manifest that declares a nested
+# `version` — `metadata.version`, an entry under `agents`, an element of a
+# dependency array — ahead of its own gets read as the nested value. Measured on
+# dr-agents#466: with `metadata.version = 9.9.9` before top-level
+# `version = 1.2.3`, the old pipeline returned 9.9.9 and `jq -r .version`
+# returned 1.2.3.
+#
+# That pipeline had been copied four times in this file — twice for `version`,
+# once for an installed manifest's `version`, once for a release `tag_name`.
+# Four copies is why fixing one instance would not have held: the shape was
+# available to copy again. This is the single reading all four now go through.
+#
+# jq is not a dependency of this repository, so the fallback is a real parser
+# rather than a line match: it tracks brace and bracket depth OUTSIDE string
+# literals, decodes backslash escapes so a `"version": "0.0.0"` sitting inside
+# some description string cannot be mistaken for the field, and accepts the key
+# only at depth 1. tests/test_json_top_level_string.sh runs both readers over
+# one shared fixture set through both branches and asserts they agree, so a
+# divergence cannot arrive in silence.
+#
+# A JSON escape is an ENCODING, not quoting to discard. An earlier revision of
+# this reader appended the character after the backslash unchanged. That is
+# right for `\"` and `\\` — the two escapes where discarding and decoding
+# coincide, which is why it looked correct — and wrong for every other one:
+# `\u0031` read as `u0031` where jq reads `1`, `\n` as `n`, `\t` as `t`.
+# Measured on dr-agents#466.
+#
+# So the accepted domain is stated rather than approximated: a decoded value
+# made only of printable ASCII (0x20-0x7E). Inside it the fallback decodes
+# exactly — `\"`, `\\`, `\/`, and `\uXXXX` whose code point lands in the range.
+# Outside it the fallback REFUSES: non-zero status, no output.
+#
+# Refusing was chosen over decoding everything. Emitting non-ASCII from awk
+# means emitting UTF-8 bytes, and `sprintf("%c", n)` for n > 127 is
+# implementation-defined — gawk yields a locale-encoded wide character, BWK awk
+# a raw byte — so an awk decoder covering the whole BMP and surrogate pairs
+# would be right on one awk and quietly wrong on another. That is this same
+# defect in a new shape. The values actually read are a plugin version (semver
+# in practice), an installed manifest's version and a release `tag_name`; none
+# is expected to leave printable ASCII. The binding constraint is that the two
+# branches must never disagree in silence: a loud failure is acceptable, a
+# wrong version is not.
+#
+# The jq branch enforces the same domain with `explode`, so it refuses exactly
+# what the fallback refuses instead of quietly accepting what awk cannot
+# represent.
+json_top_level_string() {
+  local field="$1" file="$2"
+  [[ -f "$file" ]] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    jq -er --arg f "$field" \
+      '.[$f] | strings | select(all(explode[]; . >= 32 and . <= 126))' \
+      "$file" 2>/dev/null || return 1
+  else
+    awk -v field="$field" '
+      function hexval(s,   k, d, v) {
+        v = 0
+        for (k = 1; k <= length(s); k++) {
+          d = index("0123456789abcdef", tolower(substr(s, k, 1)))
+          if (d == 0) return -1
+          v = v * 16 + (d - 1)
+        }
+        return v
+      }
+      { buf = buf $0 "\n" }
+      END {
+        n = length(buf)
+        for (i = 1; i <= n; i++) {
+          c = substr(buf, i, 1)
+          if (instr) {
+            if (c == "\\") {
+              e = substr(buf, i + 1, 1)
+              if (e == "\"" || e == "\\" || e == "/") { tok = tok e; i++; continue }
+              if (e == "u") {
+                hex = substr(buf, i + 2, 4)
+                cp = -1
+                if (hex ~ /^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$/) cp = hexval(hex)
+                if (cp >= 32 && cp <= 126) { tok = tok sprintf("%c", cp); i += 5; continue }
+                # A code point outside printable ASCII (including either half of
+                # a surrogate pair), or a malformed escape: refuse rather than
+                # answer differently from jq.
+                if (want) { exit 1 }
+                i += 5
+                continue
+              }
+              # \b \f \n \r \t, or an invalid escape: not printable ASCII.
+              if (want) { exit 1 }
+              i++
+              continue
+            }
+            if (c == "\"") {
+              instr = 0
+              if (want) { print tok; exit 0 }
+              key = tok
+              continue
+            }
+            # A raw byte outside printable ASCII would also leave the accepted
+            # domain, and jq refuses it, so this does too.
+            if (want && c !~ /[ -~]/) { exit 1 }
+            tok = tok c
+            continue
+          }
+          if (c == "\"") { instr = 1; tok = ""; continue }
+          # A non-string where the value was expected: the field exists but is a
+          # number, object, array or null. Print nothing.
+          if (want && c !~ /[ \t\r\n]/) { exit 1 }
+          if (c == "{" || c == "[") { depth++; continue }
+          if (c == "}" || c == "]") { depth--; continue }
+          if (c == ":") { if (depth == 1 && key == field) want = 1; continue }
+        }
+        exit 1
+      }
+    ' "$file" || return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Version helpers
 # ---------------------------------------------------------------------------
 
 claudio_version() {
-  local manifest="${REPO_DIR}/plugins/claudio-dr/.claude-plugin/plugin.json"
-  if command -v jq >/dev/null 2>&1; then
-    jq -r '.version' "${manifest}"
-  else
-    grep '"version"' "${manifest}" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
-  fi
+  json_top_level_string version "${REPO_DIR}/plugins/claudio-dr/.claude-plugin/plugin.json"
 }
 
 cody_version() {
-  local manifest="${REPO_DIR}/plugins/cody-dr/.codex-plugin/plugin.json"
-  if command -v jq >/dev/null 2>&1; then
-    jq -r '.version' "${manifest}"
-  else
-    grep '"version"' "${manifest}" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
-  fi
+  json_top_level_string version "${REPO_DIR}/plugins/cody-dr/.codex-plugin/plugin.json"
 }
 
 # The one place the "which claudio-dr@dr-agents entry does Claude use?"
@@ -360,13 +475,7 @@ installed_version() {
     echo "not installed"
     return
   fi
-  if command -v jq >/dev/null 2>&1; then
-    jq -r '.version // "unknown"' "${manifest}" 2>/dev/null || echo "unknown"
-  else
-    grep '"version"' "${manifest}" | head -1 \
-      | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
-      || echo "unknown"
-  fi
+  json_top_level_string version "${manifest}" || echo "unknown"
 }
 
 # ---------------------------------------------------------------------------
@@ -482,9 +591,21 @@ mode_download() {
   # Resolve version
   if [[ -z "${version}" ]]; then
     echo "Resolving latest release from GitHub..."
-    local api_response
+    # Through the same reader as the manifest versions. A release payload nests
+    # objects (`author`, `assets[]`), so selecting the first line that mentions
+    # the key is the same defect here as it was there; this takes the top-level
+    # field or fails.
+    #
+    # The response is still read from stdout and only then written to a file for
+    # the reader. Passing `curl -o` instead would have been the smaller diff and
+    # is wrong: what changed here is the parsing, not the transport, and
+    # tests/test_install_download.sh's curl stub answers /releases/latest on
+    # stdout. Switching to -o makes that fixture silently yield an empty file.
+    local api_response api_response_file
     api_response="$(curl -fsSL "${api_base}/releases/latest")"
-    version="$(echo "${api_response}" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+    api_response_file="${tmp_dir}/releases-latest.json"
+    printf '%s' "${api_response}" > "${api_response_file}"
+    version="$(json_top_level_string tag_name "${api_response_file}")" || version=""
     if [[ -z "${version}" ]]; then
       echo "ERROR: could not resolve latest release version from GitHub" >&2
       exit 1

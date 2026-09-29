@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+#
+# Stamp each managed publisher stub with its plugin's catalog version.
+#
+# The marker on line 1 of every plugins/*/workflows/publish-*.yml is what
+# bin/install reads to detect drift without a full file diff, so it must equal
+# the version in that plugin's manifest. It used to be maintained by hand and
+# held in place by an assertion in bin/check, which names a defect without
+# being able to correct it and drifts the moment a plugin or a stub is added.
+#
+# This derives it instead. The plugin set comes from plugins/*/workflows/, the
+# version comes from that plugin's own manifest, and the manifest's filename is
+# globbed rather than enumerated because the two adapters do not share it
+# (.claude-plugin vs .codex-plugin).
+#
+#   bin/stamp-workflow-versions            rewrite every stub's marker
+#   bin/stamp-workflow-versions --check    report stale markers, write nothing
+#
+# --check is what bin/check calls: a generated-file check, so a hand edit to a
+# marker fails the gate the same way a forgotten bump does, and a new adapter or
+# a new stub is covered without anything being added here.
+
+set -euo pipefail
+
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repository_root"
+
+check_only=0
+case "${1:-}" in
+  --check) check_only=1 ;;
+  "")      ;;
+  *)       echo "usage: bin/stamp-workflow-versions [--check]" >&2; exit 2 ;;
+esac
+
+# The TOP-LEVEL version field of a plugin's manifest, wherever that manifest
+# lives.
+#
+# "first line containing \"version\"" is not the same field: a manifest that
+# declares metadata.version before its catalog version would stamp every stub
+# from the nested value, and --check would then accept the wrong version as
+# derived. So this selects by position in the JSON object, not by textual order.
+#
+# jq when it is available, an awk fallback when it is not, following the two
+# branches bin/install's reader already uses — jq is not a dependency of this
+# repository, and a jq-only parser here would fail bin/check on a machine where
+# it currently passes. The awk branch tracks brace depth outside string literals
+# and accepts "version" only at depth 1, so the two branches answer the same on
+# every manifest; tests/test_json_top_level_string.sh asserts that agreement
+# across both scripts and both branches over one shared fixture set.
+#
+# Both branches print nothing when the field is absent or is not a string, and
+# the caller treats that as an error rather than stamping an empty marker.
+#
+# bin/install sources nothing on purpose — `--download` installs it standalone —
+# so this reader is necessarily a second copy of the one there. Keep the awk
+# program below byte-identical to bin/install's.
+#
+# A JSON escape is an ENCODING, not quoting to discard. An earlier revision of
+# this reader appended the character after the backslash unchanged. That is
+# right for `\"` and `\\` — the two escapes where discarding and decoding
+# coincide, which is why it looked correct — and wrong for every other one:
+# `\u0031` read as `u0031` where jq reads `1`, `\n` as `n`, `\t` as `t`.
+# Measured on dr-agents#466.
+#
+# So the accepted domain is stated rather than approximated: a decoded value
+# made only of printable ASCII (0x20-0x7E). Inside it the fallback decodes
+# exactly — `\"`, `\\`, `\/`, and `\uXXXX` whose code point lands in the range.
+# Outside it the fallback REFUSES: non-zero status, no output.
+#
+# Refusing was chosen over decoding everything. Emitting non-ASCII from awk
+# means emitting UTF-8 bytes, and `sprintf("%c", n)` for n > 127 is
+# implementation-defined — gawk yields a locale-encoded wide character, BWK awk
+# a raw byte — so an awk decoder covering the whole BMP and surrogate pairs
+# would be right on one awk and quietly wrong on another. That is this same
+# defect in a new shape. The values actually read are a plugin version (semver
+# in practice), an installed manifest's version and a release `tag_name`; none
+# is expected to leave printable ASCII. The binding constraint is that the two
+# branches must never disagree in silence: a loud failure is acceptable, a
+# wrong version is not.
+#
+# The jq branch enforces the same domain with `explode`, so it refuses exactly
+# what the fallback refuses instead of quietly accepting what awk cannot
+# represent.
+plugin_manifest_version() {
+  local plugin="$1" manifest version
+  for manifest in "plugins/$plugin"/.*-plugin/plugin.json; do
+    [[ -e "$manifest" ]] || continue
+
+    if command -v jq >/dev/null 2>&1; then
+      version="$(jq -er '.version | strings | select(all(explode[]; . >= 32 and . <= 126))' "$manifest" 2>/dev/null)" || version=""
+    else
+      version="$(awk -v field="version" '
+      function hexval(s,   k, d, v) {
+        v = 0
+        for (k = 1; k <= length(s); k++) {
+          d = index("0123456789abcdef", tolower(substr(s, k, 1)))
+          if (d == 0) return -1
+          v = v * 16 + (d - 1)
+        }
+        return v
+      }
+      { buf = buf $0 "\n" }
+      END {
+        n = length(buf)
+        for (i = 1; i <= n; i++) {
+          c = substr(buf, i, 1)
+          if (instr) {
+            if (c == "\\") {
+              e = substr(buf, i + 1, 1)
+              if (e == "\"" || e == "\\" || e == "/") { tok = tok e; i++; continue }
+              if (e == "u") {
+                hex = substr(buf, i + 2, 4)
+                cp = -1
+                if (hex ~ /^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$/) cp = hexval(hex)
+                if (cp >= 32 && cp <= 126) { tok = tok sprintf("%c", cp); i += 5; continue }
+                # A code point outside printable ASCII (including either half of
+                # a surrogate pair), or a malformed escape: refuse rather than
+                # answer differently from jq.
+                if (want) { exit 1 }
+                i += 5
+                continue
+              }
+              # \b \f \n \r \t, or an invalid escape: not printable ASCII.
+              if (want) { exit 1 }
+              i++
+              continue
+            }
+            if (c == "\"") {
+              instr = 0
+              if (want) { print tok; exit 0 }
+              key = tok
+              continue
+            }
+            # A raw byte outside printable ASCII would also leave the accepted
+            # domain, and jq refuses it, so this does too.
+            if (want && c !~ /[ -~]/) { exit 1 }
+            tok = tok c
+            continue
+          }
+          if (c == "\"") { instr = 1; tok = ""; continue }
+          # A non-string where the value was expected: the field exists but is a
+          # number, object, array or null. Print nothing.
+          if (want && c !~ /[ \t\r\n]/) { exit 1 }
+          if (c == "{" || c == "[") { depth++; continue }
+          if (c == "}" || c == "]") { depth--; continue }
+          if (c == ":") { if (depth == 1 && key == field) want = 1; continue }
+        }
+        exit 1
+      }
+      ' "$manifest")" || version=""
+    fi
+
+    if [[ -z "$version" ]]; then
+      echo "manifest $manifest has no top-level string \"version\" field" >&2
+      return 1
+    fi
+    printf '%s\n' "$version"
+    return 0
+  done
+  echo "no plugin manifest under plugins/$plugin/.*-plugin/plugin.json" >&2
+  return 1
+}
+
+stale=0
+stamped=0
+considered=0
+
+for stub in plugins/*/workflows/publish-*.yml; do
+  [[ -e "$stub" ]] || continue
+  considered=$((considered + 1))
+
+  # plugins/<plugin>/workflows/<file>.yml
+  rest="${stub#plugins/}"
+  plugin="${rest%%/*}"
+
+  # An unreadable version is fatal, never a blank marker: the installer reads
+  # line 1 to detect drift, so a stub stamped "# <plugin>: v" would silently
+  # disable that check for this plugin.
+  if ! version="$(plugin_manifest_version "$plugin")" || [[ -z "$version" ]]; then
+    echo "could not read a top-level version for plugin '$plugin'" >&2
+    exit 1
+  fi
+  want="# $plugin: v$version"
+
+  have="$(head -1 "$stub")"
+  [[ "$have" == "$want" ]] && continue
+
+  if [[ "$check_only" == "1" ]]; then
+    # A marker that is absent and one that names the wrong version are the same
+    # defect to the installer, so they are reported the same way.
+    echo "stale marker: $stub" >&2
+    echo "  line 1 is   '$have'" >&2
+    echo "  derived is  '$want'" >&2
+    stale=$((stale + 1))
+    continue
+  fi
+
+  # Replace line 1 when it is already a marker for this plugin; otherwise the
+  # stub has never been stamped, so prepend rather than destroy a real line.
+  tmp="$(mktemp)"
+  if [[ "$have" == "# $plugin: v"* ]]; then
+    { printf '%s\n' "$want"; tail -n +2 "$stub"; } > "$tmp"
+  else
+    { printf '%s\n' "$want"; cat "$stub"; } > "$tmp"
+  fi
+  mv "$tmp" "$stub"
+  echo "stamped  $stub  ($want)"
+  stamped=$((stamped + 1))
+done
+
+if [[ "$considered" -eq 0 ]]; then
+  echo "no publisher stubs found under plugins/*/workflows/" >&2
+  exit 1
+fi
+
+if [[ "$stale" -gt 0 ]]; then
+  echo "" >&2
+  echo "$stale stub marker(s) do not match their plugin manifest." >&2
+  echo "Run bin/stamp-workflow-versions to derive them, then commit the result." >&2
+  exit 1
+fi
+
+if [[ "$check_only" == "1" ]]; then
+  echo "workflow version markers: $considered stub(s) match their plugin manifest"
+elif [[ "$stamped" -eq 0 ]]; then
+  echo "workflow version markers: already derived ($considered stub(s))"
+fi
