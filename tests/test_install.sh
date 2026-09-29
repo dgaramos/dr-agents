@@ -674,17 +674,38 @@ fi
 # registered_claudio_field() inherits the same comparison.
 # ---------------------------------------------------------------------------
 readers="$tmp/readers.sh"
+# Selection and projection are separate functions on purpose (see bin/install),
+# so all three are extracted. Naming them explicitly is also the check that the
+# split still exists: collapsing them back into one function, which is what
+# made the wrong composition order representable, fails here.
 awk '
+  /^registered_claudio_entry\(\) \{$/ { inside = 1 }
+  /^registered_claudio_entry_field\(\) \{$/ { inside = 1 }
   /^registered_claudio_field\(\) \{$/ { inside = 1 }
   inside { print }
-  inside && /^\}$/ { exit }
+  inside && /^\}$/ { inside = 0 }
 ' "$repository_root/bin/install" > "$readers"
-grep -q '^registered_claudio_field() {$' "$readers" \
-  || { echo "FAIL: could not extract registered_claudio_field from bin/install" >&2; exit 1; }
+for reader_fn in registered_claudio_entry registered_claudio_entry_field registered_claudio_field; do
+  grep -q "^$reader_fn() {\$" "$readers" \
+    || { echo "FAIL: could not extract $reader_fn from bin/install" >&2; exit 1; }
+done
 grep -q '^}$' "$readers" \
-  || { echo "FAIL: extracted registered_claudio_field is not closed" >&2; exit 1; }
+  || { echo "FAIL: extracted readers are not closed" >&2; exit 1; }
 bash -n "$readers" \
-  || { echo "FAIL: extracted registered_claudio_field does not parse" >&2; exit 1; }
+  || { echo "FAIL: extracted readers do not parse" >&2; exit 1; }
+# registered_claudio_entry() must not be able to select BY a field: a field
+# name reaching it is how projection and selection get composed in the wrong
+# order. This is a structural assertion, not a behavioural one.
+entry_body="$tmp/entry-body.sh"
+awk '
+  /^registered_claudio_entry\(\) \{$/ { inside = 1 }
+  inside { print }
+  inside && /^\}$/ { exit }
+' "$repository_root/bin/install" > "$entry_body"
+if grep -Eq 'local[[:space:]]+field=|\$\{?2\}?' "$entry_body"; then
+  echo "FAIL: registered_claudio_entry() reads a second argument; selection must not see a field" >&2
+  exit 1
+fi
 
 # A PATH with the tools the awk branch needs and deliberately without jq.
 nojq_bin="$tmp/nojq-bin"
@@ -759,8 +780,30 @@ jq -n '{
   }
 }' > "$fixtures/absent.json"
 
+# Round 4 of dr-agents#461: the selected user entry has NO version, while a
+# project entry does. The jq branch mapped the field over every entry before
+# taking the first non-empty result, so it answered 0.1.43-project here — the
+# gate would have approved `Global install complete` by borrowing another
+# scope's version. The awk branch, which selects the entry first, returned
+# nothing. The rule says nothing: there is no version recorded on the user
+# installation.
+jq -n '{
+  version: 2,
+  plugins: {
+    "claudio-dr@dr-agents": [
+      {scope: "project", version: "0.1.43-project", installPath: "/project/claudio-dr"},
+      {scope: "user", installPath: "/user/claudio-dr"}
+    ],
+    "zz-later@dr-agents": [
+      {scope: "user", version: "7.7.7-later", installPath: "/later/path"}
+    ]
+  }
+}' > "$fixtures/user-entry-without-version.json"
+
 # fixture | field | expected shared answer
 reader_cases=(
+  "user-entry-without-version.json|version|"
+  "user-entry-without-version.json|installPath|/user/claudio-dr"
   "mixed-scope.json|version|0.1.43-user"
   "mixed-scope.json|installPath|/user/claudio-dr"
   "mixed-scope-compact.json|version|0.1.43-user"
@@ -790,6 +833,118 @@ for reader_case in "${reader_cases[@]}"; do
     exit 1
   }
 done
+
+# ---------------------------------------------------------------------------
+# dr-agents#461 round 4: the shape space, generated — not a fixture table
+#
+# The cases above are named regressions, one per round of this finding. They
+# share a limit the round-3 reply disclosed and round 4 then hit within the
+# hour: "the differential only covers fixtures in the table. A JSON shape no
+# fixture exhibits can still diverge." A hand-written table cannot cover
+# shapes nobody thought of, and a pure differential cannot catch the two
+# parsers being wrong in the same way.
+#
+# So this block does not hand-write shapes and does not only compare the two
+# parsers. It enumerates the space the selection rule is defined over —
+# entry count x scope x whether the requested field is present and of what
+# type — and checks both parsers against an ORACLE computed from the same
+# parameters the fixture was built from. Shared wrongness fails here; the
+# differential alone would pass it.
+# ---------------------------------------------------------------------------
+
+# scope code: u=user, p=project, n=no scope key
+# value code: s=string, m=missing, i=non-string (a number)
+sweep_kinds=(us um ui ps pm pi ns nm ni)
+
+# Build one entry object. $1 kind, $2 tag, $3 field name.
+sweep_entry() {
+  local kind="$1" tag="$2" field="$3"
+  local scope_code="${kind:0:1}" value_code="${kind:1:1}"
+  local parts="\"id\": \"$tag\""
+  case "$scope_code" in
+    u) parts="$parts, \"scope\": \"user\"" ;;
+    p) parts="$parts, \"scope\": \"project\"" ;;
+  esac
+  case "$value_code" in
+    s) parts="$parts, \"$field\": \"$tag-value\"" ;;
+    i) parts="$parts, \"$field\": 7" ;;
+  esac
+  printf '{%s}' "$parts"
+}
+
+# The rule, stated independently of both parsers: prefer the first
+# user-scoped entry, else the first entry, then read the field off THAT entry
+# and return it only when it is a string.
+sweep_oracle() {
+  local field="$1"; shift
+  local kinds=("$@")
+  local chosen_index=-1 index=0 kind
+  for kind in ${kinds+"${kinds[@]}"}; do
+    if [[ "${kind:0:1}" == "u" ]]; then chosen_index=$index; break; fi
+    index=$((index + 1))
+  done
+  if [[ $chosen_index -eq -1 && ${#kinds[@]} -gt 0 ]]; then chosen_index=0; fi
+  if [[ $chosen_index -eq -1 ]]; then printf ''; return 0; fi
+  local chosen="${kinds[$chosen_index]}"
+  if [[ "${chosen:1:1}" == "s" ]]; then printf 'e%s-value' "$chosen_index"; fi
+}
+
+sweep_checked=0
+sweep_case() {
+  local field="$1"; shift
+  local kinds=(${1+"$@"})
+  local entries="" index=0 kind
+  for kind in ${kinds+"${kinds[@]}"}; do
+    [[ -n "$entries" ]] && entries="$entries, "
+    entries="$entries$(sweep_entry "$kind" "e$index" "$field")"
+    index=$((index + 1))
+  done
+
+  local state="$fixtures/sweep.json"
+  # A later plugin key is always present: reading past the array terminator
+  # must not reach it.
+  printf '{"version": 2, "plugins": {"claudio-dr@dr-agents": [%s], "zz-later@dr-agents": [{"scope": "user", "version": "7.7.7-later", "installPath": "/later/path"}]}}\n' \
+    "$entries" > "$state"
+  jq -e . "$state" >/dev/null \
+    || { echo "FAIL: generated sweep fixture is not valid JSON: $entries" >&2; exit 1; }
+
+  local expected
+  expected="$(sweep_oracle "$field" ${kinds+"${kinds[@]}"})"
+
+  local got_jq got_awk
+  got_jq="$(read_field "$PATH" "$state" "$field")"
+  got_awk="$(read_field "$nojq_bin" "$state" "$field")"
+
+  [[ "$got_jq" == "$got_awk" ]] || {
+    echo "FAIL: jq and awk disagree on generated shape [${kinds[*]-}] field $field:" >&2
+    echo "      jq   -> '$got_jq'" >&2
+    echo "      awk  -> '$got_awk'" >&2
+    exit 1
+  }
+  # The oracle is what makes this more than a differential: it fails even when
+  # both parsers agree on the wrong answer.
+  [[ "$got_jq" == "$expected" ]] || {
+    echo "FAIL: generated shape [${kinds[*]-}] field $field read '$got_jq', rule says '$expected'" >&2
+    echo "      state: $(cat "$state")" >&2
+    exit 1
+  }
+  sweep_checked=$((sweep_checked + 1))
+}
+
+for sweep_field in version installPath; do
+  sweep_case "$sweep_field"
+  for sweep_a in "${sweep_kinds[@]}"; do
+    sweep_case "$sweep_field" "$sweep_a"
+    for sweep_b in "${sweep_kinds[@]}"; do
+      sweep_case "$sweep_field" "$sweep_a" "$sweep_b"
+    done
+  done
+done
+
+# The sweep is only as good as its size; an empty or collapsed loop would pass
+# silently. 2 fields x (1 empty + 9 single + 81 pairs).
+[[ "$sweep_checked" -eq 182 ]] \
+  || { echo "FAIL: reader shape sweep checked $sweep_checked cases, expected 182" >&2; exit 1; }
 
 # Guard the guard: the differential is worthless if the no-jq run silently
 # used jq anyway. Prove the awk branch is the one that answered.
@@ -845,5 +1000,54 @@ echo "$mixed_output" | grep -q "Global install complete" \
 [[ "$(jq -r '[.plugins["claudio-dr@dr-agents"][] | select(.scope == "project")] | length' \
       "$mixed_state")" == "1" ]] \
   || { echo "FAIL: the project-scoped entry did not survive --global" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# dr-agents#461 round 4, end to end on the reachable path.
+#
+# The round-4 shape cannot survive --global: the `update` dispatch re-records
+# the user entry with a version before the gate reads it, so a user entry
+# missing `version` is not reachable through that flow (stated in the reply
+# rather than faked here). --status is different — it dispatches nothing and
+# reads the recorded state as it stands, so a user entry missing `installPath`
+# reaches the reader untouched. With the projection-before-selection defect,
+# registered_claudio_cache() answered with the PROJECT entry's path and
+# --status reported another scope's directory as the global installation.
+# ---------------------------------------------------------------------------
+borrow_home="$tmp/borrow-home"
+borrow_claude_dir="$borrow_home/.claude"
+mkdir -p "$borrow_home"
+( cd "$tmp" \
+  && HOME="$borrow_home" CODEX_CONFIG_DIR="$borrow_home/.codex" \
+     CLAUDE_CONFIG_DIR="$borrow_claude_dir" \
+     CODEX_CALL_LOG="$tmp/borrow-codex.log" CLAUDE_CALL_LOG="$tmp/borrow-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global >/dev/null 2>&1 )
+
+borrow_state="$borrow_claude_dir/plugins/installed_plugins.json"
+# A project entry that HAS installPath, before a user entry that does not.
+jq '.plugins["claudio-dr@dr-agents"] =
+      ([{scope: "project", version: "0.0.1-project", installPath: "/project/claudio-dr"}]
+       + (.plugins["claudio-dr@dr-agents"] | map(del(.installPath))))' \
+  "$borrow_state" > "$borrow_state.tmp" && mv "$borrow_state.tmp" "$borrow_state"
+
+# Guard the fixture: it proves nothing unless the user entry really lacks the
+# field and the project entry really carries it.
+[[ "$(jq -r 'first(.plugins["claudio-dr@dr-agents"][] | select(.scope == "user") | has("installPath"))' \
+      "$borrow_state")" == "false" \
+   && "$(jq -r '.plugins["claudio-dr@dr-agents"][0].installPath' \
+      "$borrow_state")" == "/project/claudio-dr" ]] \
+  || { echo "FAIL: could not stage a user entry missing installPath" >&2; exit 1; }
+
+borrow_status="$( cd "$tmp" \
+  && HOME="$borrow_home" CODEX_CONFIG_DIR="$borrow_home/.codex" \
+     CLAUDE_CONFIG_DIR="$borrow_claude_dir" \
+     CODEX_CALL_LOG="$tmp/borrow-codex.log" CLAUDE_CALL_LOG="$tmp/borrow-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --status 2>&1 )"
+
+echo "$borrow_status" | grep -qF "/project/claudio-dr" \
+  && { echo "FAIL: --status reported a project-scoped path as the global claudio-dr install" >&2
+       echo "$borrow_status" >&2
+       exit 1; }
 
 echo "bin/install tests passed"
