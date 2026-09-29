@@ -64,6 +64,33 @@ claudio_ver="$(jq -r '.version' "$repository_root/plugins/claudio-dr/.claude-plu
 grep -qF "plugin add cody-dr@dr-agents" "$codex_call_log" || { echo "FAIL: update did not refresh cody-dr@dr-agents" >&2; exit 1; }
 grep -qF "plugin install claudio-dr@dr-agents" "$claude_call_log" || { echo "FAIL: update did not refresh claudio-dr@dr-agents" >&2; exit 1; }
 
+# dr-agents#455: `agents update --global` is the command every machine uses to
+# take a new catalog version, so it is the one that must leave the recorded
+# version agreeing with the catalog. `plugin install` no-ops on an
+# already-installed plugin; `plugin update` is what re-records.
+grep -qF "plugin update claudio-dr@dr-agents" "$claude_call_log" \
+  || { echo "FAIL: update did not re-record the claudio-dr version" >&2; exit 1; }
+
+# Re-run against an already-installed plugin recorded at an older version:
+# the case the no-op used to leave stale behind a "Global install complete".
+stale_version="0.0.1-stale"
+stale_path="$claude_dir/plugins/cache/dr-agents/claudio-dr/$stale_version"
+mkdir -p "$stale_path/.claude-plugin"
+printf '{"name":"claudio-dr","version":"%s"}\n' "$stale_version" \
+  > "$stale_path/.claude-plugin/plugin.json"
+jq -n --arg path "$stale_path" --arg version "$stale_version" \
+  '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+  > "$claude_dir/plugins/installed_plugins.json"
+
+stale_update_output="$(run_update --global)"
+recorded_after="$(jq -r '(.plugins["claudio-dr@dr-agents"] // []) | map(.version // empty) | first // empty' \
+  "$claude_dir/plugins/installed_plugins.json")"
+[[ "$recorded_after" == "$claudio_ver" ]] \
+  || { echo "FAIL: --global left the recorded version at $recorded_after, not $claudio_ver" >&2; exit 1; }
+echo "$stale_update_output" | grep -q "Global install complete" \
+  || { echo "FAIL: --global did not complete after re-recording; output: $stale_update_output" >&2; exit 1; }
+rm -rf "$stale_path"
+
 # ---------------------------------------------------------------------------
 # --repo: pulls catalog then installs repo-local
 # ---------------------------------------------------------------------------

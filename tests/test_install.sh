@@ -92,6 +92,176 @@ pointer_content="$(< "$global_pointer")"
 run_install "$tmp" --global
 
 # ---------------------------------------------------------------------------
+# dr-agents#455: --global re-records the version on an already-installed plugin
+#
+# `claude plugin install` no-ops on an already-installed plugin and leaves the
+# recorded version alone, so `agents update --global` used to print "Global
+# install complete" while `claude plugin list` still reported the version from
+# whenever the plugin was first installed. The catalog's job is to leave every
+# reading of the installed version agreeing.
+#
+# The fake models that no-op (tests/helpers/fake-claude.sh); without it this
+# test would pass against a CLI stub that was never wrong.
+# ---------------------------------------------------------------------------
+recorded_claudio_version() {
+  jq -r '(.plugins["claudio-dr@dr-agents"] // []) | map(.version // empty) | first // empty' \
+    "$claude_dir/plugins/installed_plugins.json"
+}
+
+stale_version="0.0.1-stale"
+stale_path="$claude_dir/plugins/cache/dr-agents/claudio-dr/$stale_version"
+mkdir -p "$stale_path/.claude-plugin"
+printf '{"name":"claudio-dr","version":"%s"}\n' "$stale_version" \
+  > "$stale_path/.claude-plugin/plugin.json"
+jq -n --arg path "$stale_path" --arg version "$stale_version" \
+  '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+  > "$claude_dir/plugins/installed_plugins.json"
+
+[[ "$(recorded_claudio_version)" == "$stale_version" ]] \
+  || { echo "FAIL: could not stage a stale recorded version" >&2; exit 1; }
+
+stale_output="$(run_install "$tmp" --global)"
+
+grep -qF "plugin update claudio-dr@dr-agents" "$claude_call_log" \
+  || { echo "FAIL: --global did not dispatch 'plugin update' to re-record the version" >&2; exit 1; }
+[[ "$(recorded_claudio_version)" == "$claudio_ver" ]] \
+  || { echo "FAIL: --global left the recorded version at $(recorded_claudio_version), not $claudio_ver" >&2; exit 1; }
+echo "$stale_output" | grep -q "Global install complete" \
+  || { echo "FAIL: --global did not complete after re-recording; output: $stale_output" >&2; exit 1; }
+rm -rf "$stale_path"
+
+# ---------------------------------------------------------------------------
+# dr-agents#455: --global does not claim completion when the version disagrees
+#
+# The failure path. If the dispatch does not leave the recorded version
+# matching the catalog, the flow must say so rather than print "Global install
+# complete" over the top of a disagreement it can see.
+#
+# A dedicated stub stands in for a CLI whose `update` does not honour the
+# re-record — the realistic failure, and the one the gate exists to catch.
+# Pointing this at the shared fake would mean asserting a defect into the fake
+# that the other cases depend on not having.
+# ---------------------------------------------------------------------------
+lying_home="$tmp/lying-home"
+lying_claude_dir="$lying_home/.claude"
+lying_bin="$tmp/lying-bin"
+mkdir -p "$lying_home" "$lying_bin"
+cp "$repository_root/tests/helpers/fake-codex.sh" "$lying_bin/codex"
+# Neuter only the update path's re-record; everything else behaves as the fake.
+sed 's/^  updated="\$(record_install)"$/  updated="$existing"/' \
+  "$repository_root/tests/helpers/fake-claude.sh" > "$lying_bin/claude"
+grep -qF 'updated="$existing"' "$lying_bin/claude" \
+  || { echo "FAIL: could not build the non-re-recording claude stub" >&2; exit 1; }
+chmod +x "$lying_bin/codex" "$lying_bin/claude"
+
+# Install once so the plugin is present, then stage a stale recording for the
+# stub to fail to repair.
+( cd "$tmp" \
+  && HOME="$lying_home" CODEX_CONFIG_DIR="$lying_home/.codex" \
+     CLAUDE_CONFIG_DIR="$lying_claude_dir" \
+     CODEX_CALL_LOG="$tmp/lying-codex.log" CLAUDE_CALL_LOG="$tmp/lying-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global >/dev/null 2>&1 )
+
+lying_stale="$lying_claude_dir/plugins/cache/dr-agents/claudio-dr/$stale_version"
+mkdir -p "$lying_stale/.claude-plugin"
+printf '{"name":"claudio-dr","version":"%s"}\n' "$stale_version" \
+  > "$lying_stale/.claude-plugin/plugin.json"
+jq -n --arg path "$lying_stale" --arg version "$stale_version" \
+  '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+  > "$lying_claude_dir/plugins/installed_plugins.json"
+
+if lying_output="$( cd "$tmp" \
+    && HOME="$lying_home" CODEX_CONFIG_DIR="$lying_home/.codex" \
+       CLAUDE_CONFIG_DIR="$lying_claude_dir" \
+       CODEX_CALL_LOG="$tmp/lying-codex.log" CLAUDE_CALL_LOG="$tmp/lying-claude.log" \
+       PATH="$lying_bin:$PATH" \
+       bash "$repository_root/bin/install" --global 2>&1 )"; then
+  echo "FAIL: --global exited 0 with a recorded version that disagrees with the catalog" >&2
+  echo "$lying_output" >&2
+  exit 1
+fi
+echo "$lying_output" | grep -qF "$stale_version" \
+  || { echo "FAIL: --global did not name the disagreeing recorded version; output: $lying_output" >&2; exit 1; }
+echo "$lying_output" | grep -qF "$claudio_ver" \
+  || { echo "FAIL: --global did not name the catalog version it expected; output: $lying_output" >&2; exit 1; }
+if echo "$lying_output" | grep -q "Global install complete"; then
+  echo "FAIL: --global claimed completion despite a version disagreement" >&2; exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# dr-agents#455: the gate reads the RECORDED version, not the payload manifest
+#
+# The two readings are distinct, and every other fixture here moves them
+# together — so they cannot tell apart a gate that reads the recorded
+# `version` field from one that reads the manifest at the recorded
+# installPath. This one decouples them deliberately: the recorded field is
+# stale while the manifest at that same installPath already reports the
+# catalog version.
+#
+# That is the state issue #455 is actually about — `claude plugin list` prints
+# the field, not the manifest. A gate reading the manifest sees the catalog
+# version here and prints "Global install complete" over a recording that is
+# still wrong.
+# ---------------------------------------------------------------------------
+decoupled_path="$lying_claude_dir/plugins/cache/dr-agents/claudio-dr/$stale_version"
+mkdir -p "$decoupled_path/.claude-plugin"
+# The manifest at the recorded path is CURRENT ...
+printf '{"name":"claudio-dr","version":"%s"}\n' "$claudio_ver" \
+  > "$decoupled_path/.claude-plugin/plugin.json"
+# ... while the field Claude actually records, and prints, is stale.
+jq -n --arg path "$decoupled_path" --arg version "$stale_version" \
+  '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+  > "$lying_claude_dir/plugins/installed_plugins.json"
+
+# Guard the fixture itself: if these two ever agree, the test proves nothing.
+[[ "$(jq -r '.version' "$decoupled_path/.claude-plugin/plugin.json")" == "$claudio_ver" \
+   && "$(jq -r '(.plugins["claudio-dr@dr-agents"] // []) | map(.version // empty) | first // empty' \
+         "$lying_claude_dir/plugins/installed_plugins.json")" == "$stale_version" ]] \
+  || { echo "FAIL: could not stage a decoupled recorded-version/manifest state" >&2; exit 1; }
+
+if decoupled_output="$( cd "$tmp" \
+    && HOME="$lying_home" CODEX_CONFIG_DIR="$lying_home/.codex" \
+       CLAUDE_CONFIG_DIR="$lying_claude_dir" \
+       CODEX_CALL_LOG="$tmp/lying-codex.log" CLAUDE_CALL_LOG="$tmp/lying-claude.log" \
+       PATH="$lying_bin:$PATH" \
+       bash "$repository_root/bin/install" --global 2>&1 )"; then
+  echo "FAIL: --global exited 0 while Claude still recorded $stale_version" >&2
+  echo "      (the gate read the manifest at installPath, not the recorded version)" >&2
+  echo "$decoupled_output" >&2
+  exit 1
+fi
+echo "$decoupled_output" | grep -qF "$stale_version" \
+  || { echo "FAIL: --global did not name the stale recorded version; output: $decoupled_output" >&2; exit 1; }
+if echo "$decoupled_output" | grep -q "Global install complete"; then
+  echo "FAIL: --global claimed completion over a stale recorded version" >&2; exit 1
+fi
+
+
+# ---------------------------------------------------------------------------
+# dr-agents#455: a first-time --global still installs and records correctly
+#
+# The edge case that rules out replacing `install` with `update`. The real
+# `claude plugin update` exits non-zero on a plugin that is not installed, so
+# the two dispatches are a pair, not a redundancy.
+# ---------------------------------------------------------------------------
+fresh_home="$tmp/fresh-home"
+fresh_claude_dir="$fresh_home/.claude"
+mkdir -p "$fresh_home"
+fresh_output="$( cd "$tmp" \
+  && HOME="$fresh_home" CODEX_CONFIG_DIR="$fresh_home/.codex" \
+     CLAUDE_CONFIG_DIR="$fresh_claude_dir" \
+     CODEX_CALL_LOG="$tmp/fresh-codex.log" CLAUDE_CALL_LOG="$tmp/fresh-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global 2>&1 )"
+echo "$fresh_output" | grep -q "Global install complete" \
+  || { echo "FAIL: first-time --global did not complete; output: $fresh_output" >&2; exit 1; }
+fresh_recorded="$(jq -r '(.plugins["claudio-dr@dr-agents"] // []) | map(.version // empty) | first // empty' \
+  "$fresh_claude_dir/plugins/installed_plugins.json")"
+[[ "$fresh_recorded" == "$claudio_ver" ]] \
+  || { echo "FAIL: first-time --global recorded $fresh_recorded, not $claudio_ver" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
 # --global --force: refreshes both marketplace snapshots before installing
 #
 # Neither plugin CLI has a --force flag, so --force cannot be forwarded
@@ -487,5 +657,397 @@ if echo "$install_repeat_out" | grep -qi "mutually exclusive"; then
   echo "FAIL: bin/install --status --status is not a mode conflict; output: $install_repeat_out" >&2
   exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# dr-agents#461: the jq and awk readings of installed_plugins.json must agree
+#
+# The gate's selection rule — "the user-scoped claudio-dr@dr-agents entry, or
+# the first entry when there is none" — is implemented twice, once in jq and
+# once in awk. Only the jq branch runs on a developer machine, so a fallback
+# that selects differently is wrong in silence: that is exactly how the
+# user-scope selection ended up missing from the awk branch.
+#
+# So this does not check the two branches separately against expected values.
+# It runs every fixture through BOTH and asserts they answer the same thing,
+# then checks that one shared answer. A fixture added here is automatically
+# covered on both branches, and a future field added to
+# registered_claudio_field() inherits the same comparison.
+# ---------------------------------------------------------------------------
+readers="$tmp/readers.sh"
+# Selection and projection are separate functions on purpose (see bin/install),
+# so all three are extracted. Naming them explicitly is also the check that the
+# split still exists: collapsing them back into one function, which is what
+# made the wrong composition order representable, fails here.
+awk '
+  /^registered_claudio_entry\(\) \{$/ { inside = 1 }
+  /^registered_claudio_entry_field\(\) \{$/ { inside = 1 }
+  /^registered_claudio_field\(\) \{$/ { inside = 1 }
+  inside { print }
+  inside && /^\}$/ { inside = 0 }
+' "$repository_root/bin/install" > "$readers"
+for reader_fn in registered_claudio_entry registered_claudio_entry_field registered_claudio_field; do
+  grep -q "^$reader_fn() {\$" "$readers" \
+    || { echo "FAIL: could not extract $reader_fn from bin/install" >&2; exit 1; }
+done
+grep -q '^}$' "$readers" \
+  || { echo "FAIL: extracted readers are not closed" >&2; exit 1; }
+bash -n "$readers" \
+  || { echo "FAIL: extracted readers do not parse" >&2; exit 1; }
+# registered_claudio_entry() must not be able to select BY a field: a field
+# name reaching it is how projection and selection get composed in the wrong
+# order. This is a structural assertion, not a behavioural one.
+entry_body="$tmp/entry-body.sh"
+awk '
+  /^registered_claudio_entry\(\) \{$/ { inside = 1 }
+  inside { print }
+  inside && /^\}$/ { exit }
+' "$repository_root/bin/install" > "$entry_body"
+if grep -Eq 'local[[:space:]]+field=|\$\{?2\}?' "$entry_body"; then
+  echo "FAIL: registered_claudio_entry() reads a second argument; selection must not see a field" >&2
+  exit 1
+fi
+
+# A PATH with the tools the awk branch needs and deliberately without jq.
+nojq_bin="$tmp/nojq-bin"
+mkdir -p "$nojq_bin"
+# bash itself must be on it too: the reader runs under this PATH, and a PATH
+# that cannot resolve the shell fails for the wrong reason.
+for tool in bash awk sed grep cat basename sort tail head printf dirname cmp; do
+  tool_path="$(command -v "$tool" 2>/dev/null)" || continue
+  ln -sf "$tool_path" "$nojq_bin/$tool"
+done
+if PATH="$nojq_bin" command -v jq >/dev/null 2>&1; then
+  echo "FAIL: the no-jq PATH still resolves jq" >&2
+  exit 1
+fi
+
+read_field() {
+  # $1: PATH to run under, $2: state file, $3: field
+  PATH="$1" bash -c '
+    source "$1"
+    registered_claudio_field "$2" "$3"
+  ' _ "$readers" "$2" "$3"
+}
+
+fixtures="$tmp/reader-fixtures"
+mkdir -p "$fixtures"
+
+# Fixture: a project-scoped entry recorded BEFORE the user-scoped one. This is
+# the shape the no-jq probe on PR #461 failed on — the awk branch returned the
+# project entry while jq returned the user entry.
+jq -n '{
+  version: 2,
+  plugins: {
+    "some-other@dr-agents": [
+      {scope: "user", version: "9.9.9-other", installPath: "/other/path"}
+    ],
+    "claudio-dr@dr-agents": [
+      {scope: "project", version: "0.0.1-project", installPath: "/project/claudio-dr"},
+      {scope: "user", version: "0.1.43-user", installPath: "/user/claudio-dr"}
+    ],
+    "zz-later@dr-agents": [
+      {scope: "user", version: "7.7.7-later", installPath: "/later/path"}
+    ]
+  }
+}' > "$fixtures/mixed-scope.json"
+
+# The same state as Claude Code actually writes it: one line, no whitespace.
+jq -c . "$fixtures/mixed-scope.json" > "$fixtures/mixed-scope-compact.json"
+
+# Only a project entry: there is no user entry to prefer, so the rule falls
+# through to the first one. Without the array terminator the awk branch would
+# read the NEXT plugin key's field here.
+jq -n '{
+  version: 2,
+  plugins: {
+    "claudio-dr@dr-agents": [
+      {scope: "project", version: "0.0.1-project", installPath: "/project/claudio-dr"}
+    ],
+    "zz-later@dr-agents": [
+      {scope: "user", version: "7.7.7-later", installPath: "/later/path"}
+    ]
+  }
+}' > "$fixtures/project-only.json"
+
+# Nothing recorded for claudio-dr at all: both branches must print nothing
+# rather than borrowing another plugin's entry.
+jq -n '{
+  version: 2,
+  plugins: {
+    "zz-later@dr-agents": [
+      {scope: "user", version: "7.7.7-later", installPath: "/later/path"}
+    ]
+  }
+}' > "$fixtures/absent.json"
+
+# Round 4 of dr-agents#461: the selected user entry has NO version, while a
+# project entry does. The jq branch mapped the field over every entry before
+# taking the first non-empty result, so it answered 0.1.43-project here — the
+# gate would have approved `Global install complete` by borrowing another
+# scope's version. The awk branch, which selects the entry first, returned
+# nothing. The rule says nothing: there is no version recorded on the user
+# installation.
+jq -n '{
+  version: 2,
+  plugins: {
+    "claudio-dr@dr-agents": [
+      {scope: "project", version: "0.1.43-project", installPath: "/project/claudio-dr"},
+      {scope: "user", installPath: "/user/claudio-dr"}
+    ],
+    "zz-later@dr-agents": [
+      {scope: "user", version: "7.7.7-later", installPath: "/later/path"}
+    ]
+  }
+}' > "$fixtures/user-entry-without-version.json"
+
+# fixture | field | expected shared answer
+reader_cases=(
+  "user-entry-without-version.json|version|"
+  "user-entry-without-version.json|installPath|/user/claudio-dr"
+  "mixed-scope.json|version|0.1.43-user"
+  "mixed-scope.json|installPath|/user/claudio-dr"
+  "mixed-scope-compact.json|version|0.1.43-user"
+  "mixed-scope-compact.json|installPath|/user/claudio-dr"
+  "project-only.json|version|0.0.1-project"
+  "project-only.json|installPath|/project/claudio-dr"
+  "absent.json|version|"
+  "absent.json|installPath|"
+)
+
+for reader_case in "${reader_cases[@]}"; do
+  IFS='|' read -r case_fixture case_field case_expected <<< "$reader_case"
+  case_state="$fixtures/$case_fixture"
+
+  with_jq="$(read_field "$PATH" "$case_state" "$case_field")"
+  without_jq="$(read_field "$nojq_bin" "$case_state" "$case_field")"
+
+  # The differential assertion. This is the one that would have caught #461.
+  [[ "$with_jq" == "$without_jq" ]] || {
+    echo "FAIL: jq and awk disagree on $case_fixture field $case_field:" >&2
+    echo "      jq   -> '$with_jq'" >&2
+    echo "      awk  -> '$without_jq'" >&2
+    exit 1
+  }
+  [[ "$with_jq" == "$case_expected" ]] || {
+    echo "FAIL: $case_fixture field $case_field read '$with_jq', expected '$case_expected'" >&2
+    exit 1
+  }
+done
+
+# ---------------------------------------------------------------------------
+# dr-agents#461 round 4: the shape space, generated — not a fixture table
+#
+# The cases above are named regressions, one per round of this finding. They
+# share a limit the round-3 reply disclosed and round 4 then hit within the
+# hour: "the differential only covers fixtures in the table. A JSON shape no
+# fixture exhibits can still diverge." A hand-written table cannot cover
+# shapes nobody thought of, and a pure differential cannot catch the two
+# parsers being wrong in the same way.
+#
+# So this block does not hand-write shapes and does not only compare the two
+# parsers. It enumerates the space the selection rule is defined over —
+# entry count x scope x whether the requested field is present and of what
+# type — and checks both parsers against an ORACLE computed from the same
+# parameters the fixture was built from. Shared wrongness fails here; the
+# differential alone would pass it.
+# ---------------------------------------------------------------------------
+
+# scope code: u=user, p=project, n=no scope key
+# value code: s=string, m=missing, i=non-string (a number)
+sweep_kinds=(us um ui ps pm pi ns nm ni)
+
+# Build one entry object. $1 kind, $2 tag, $3 field name.
+sweep_entry() {
+  local kind="$1" tag="$2" field="$3"
+  local scope_code="${kind:0:1}" value_code="${kind:1:1}"
+  local parts="\"id\": \"$tag\""
+  case "$scope_code" in
+    u) parts="$parts, \"scope\": \"user\"" ;;
+    p) parts="$parts, \"scope\": \"project\"" ;;
+  esac
+  case "$value_code" in
+    s) parts="$parts, \"$field\": \"$tag-value\"" ;;
+    i) parts="$parts, \"$field\": 7" ;;
+  esac
+  printf '{%s}' "$parts"
+}
+
+# The rule, stated independently of both parsers: prefer the first
+# user-scoped entry, else the first entry, then read the field off THAT entry
+# and return it only when it is a string.
+sweep_oracle() {
+  local field="$1"; shift
+  local kinds=("$@")
+  local chosen_index=-1 index=0 kind
+  for kind in ${kinds+"${kinds[@]}"}; do
+    if [[ "${kind:0:1}" == "u" ]]; then chosen_index=$index; break; fi
+    index=$((index + 1))
+  done
+  if [[ $chosen_index -eq -1 && ${#kinds[@]} -gt 0 ]]; then chosen_index=0; fi
+  if [[ $chosen_index -eq -1 ]]; then printf ''; return 0; fi
+  local chosen="${kinds[$chosen_index]}"
+  if [[ "${chosen:1:1}" == "s" ]]; then printf 'e%s-value' "$chosen_index"; fi
+}
+
+sweep_checked=0
+sweep_case() {
+  local field="$1"; shift
+  local kinds=(${1+"$@"})
+  local entries="" index=0 kind
+  for kind in ${kinds+"${kinds[@]}"}; do
+    [[ -n "$entries" ]] && entries="$entries, "
+    entries="$entries$(sweep_entry "$kind" "e$index" "$field")"
+    index=$((index + 1))
+  done
+
+  local state="$fixtures/sweep.json"
+  # A later plugin key is always present: reading past the array terminator
+  # must not reach it.
+  printf '{"version": 2, "plugins": {"claudio-dr@dr-agents": [%s], "zz-later@dr-agents": [{"scope": "user", "version": "7.7.7-later", "installPath": "/later/path"}]}}\n' \
+    "$entries" > "$state"
+  jq -e . "$state" >/dev/null \
+    || { echo "FAIL: generated sweep fixture is not valid JSON: $entries" >&2; exit 1; }
+
+  local expected
+  expected="$(sweep_oracle "$field" ${kinds+"${kinds[@]}"})"
+
+  local got_jq got_awk
+  got_jq="$(read_field "$PATH" "$state" "$field")"
+  got_awk="$(read_field "$nojq_bin" "$state" "$field")"
+
+  [[ "$got_jq" == "$got_awk" ]] || {
+    echo "FAIL: jq and awk disagree on generated shape [${kinds[*]-}] field $field:" >&2
+    echo "      jq   -> '$got_jq'" >&2
+    echo "      awk  -> '$got_awk'" >&2
+    exit 1
+  }
+  # The oracle is what makes this more than a differential: it fails even when
+  # both parsers agree on the wrong answer.
+  [[ "$got_jq" == "$expected" ]] || {
+    echo "FAIL: generated shape [${kinds[*]-}] field $field read '$got_jq', rule says '$expected'" >&2
+    echo "      state: $(cat "$state")" >&2
+    exit 1
+  }
+  sweep_checked=$((sweep_checked + 1))
+}
+
+for sweep_field in version installPath; do
+  sweep_case "$sweep_field"
+  for sweep_a in "${sweep_kinds[@]}"; do
+    sweep_case "$sweep_field" "$sweep_a"
+    for sweep_b in "${sweep_kinds[@]}"; do
+      sweep_case "$sweep_field" "$sweep_a" "$sweep_b"
+    done
+  done
+done
+
+# The sweep is only as good as its size; an empty or collapsed loop would pass
+# silently. 2 fields x (1 empty + 9 single + 81 pairs).
+[[ "$sweep_checked" -eq 182 ]] \
+  || { echo "FAIL: reader shape sweep checked $sweep_checked cases, expected 182" >&2; exit 1; }
+
+# Guard the guard: the differential is worthless if the no-jq run silently
+# used jq anyway. Prove the awk branch is the one that answered.
+PATH="$nojq_bin" bash -c '
+  source "$1"
+  command -v jq >/dev/null 2>&1 && exit 1
+  exit 0
+' _ "$readers" \
+  || { echo "FAIL: the no-jq reader run could still see jq" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# dr-agents#461: a healthy global install is not rejected because a
+# project-scoped entry happens to be recorded first.
+# ---------------------------------------------------------------------------
+mixed_home="$tmp/mixed-home"
+mixed_claude_dir="$mixed_home/.claude"
+mkdir -p "$mixed_home"
+( cd "$tmp" \
+  && HOME="$mixed_home" CODEX_CONFIG_DIR="$mixed_home/.codex" \
+     CLAUDE_CONFIG_DIR="$mixed_claude_dir" \
+     CODEX_CALL_LOG="$tmp/mixed-codex.log" CLAUDE_CALL_LOG="$tmp/mixed-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global >/dev/null 2>&1 )
+
+mixed_state="$mixed_claude_dir/plugins/installed_plugins.json"
+# Prepend a stale project-scoped registration to the healthy user-scoped one.
+jq '.plugins["claudio-dr@dr-agents"] =
+      ([{scope: "project", version: "0.0.1-project", installPath: "/project/claudio-dr"}]
+       + .plugins["claudio-dr@dr-agents"])' \
+  "$mixed_state" > "$mixed_state.tmp" && mv "$mixed_state.tmp" "$mixed_state"
+
+# Guard the fixture: the project entry must really come first, and the user
+# entry must really be current, or this proves nothing.
+[[ "$(jq -r '.plugins["claudio-dr@dr-agents"][0].scope' "$mixed_state")" == "project" \
+   && "$(jq -r 'first(.plugins["claudio-dr@dr-agents"][] | select(.scope == "user") | .version)' \
+         "$mixed_state")" == "$claudio_ver" ]] \
+  || { echo "FAIL: could not stage a mixed-scope recorded state" >&2; exit 1; }
+
+mixed_output="$( cd "$tmp" \
+  && HOME="$mixed_home" CODEX_CONFIG_DIR="$mixed_home/.codex" \
+     CLAUDE_CONFIG_DIR="$mixed_claude_dir" \
+     CODEX_CALL_LOG="$tmp/mixed-codex.log" CLAUDE_CALL_LOG="$tmp/mixed-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global 2>&1 )" || {
+  echo "FAIL: --global rejected a healthy install over a project-scoped entry" >&2
+  echo "$mixed_output" >&2
+  exit 1
+}
+echo "$mixed_output" | grep -q "Global install complete" \
+  || { echo "FAIL: mixed-scope --global did not complete; output: $mixed_output" >&2; exit 1; }
+# The project entry must survive the run: if the fake flattened it away, the
+# gate was never asked the mixed-scope question.
+[[ "$(jq -r '[.plugins["claudio-dr@dr-agents"][] | select(.scope == "project")] | length' \
+      "$mixed_state")" == "1" ]] \
+  || { echo "FAIL: the project-scoped entry did not survive --global" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# dr-agents#461 round 4, end to end on the reachable path.
+#
+# The round-4 shape cannot survive --global: the `update` dispatch re-records
+# the user entry with a version before the gate reads it, so a user entry
+# missing `version` is not reachable through that flow (stated in the reply
+# rather than faked here). --status is different — it dispatches nothing and
+# reads the recorded state as it stands, so a user entry missing `installPath`
+# reaches the reader untouched. With the projection-before-selection defect,
+# registered_claudio_cache() answered with the PROJECT entry's path and
+# --status reported another scope's directory as the global installation.
+# ---------------------------------------------------------------------------
+borrow_home="$tmp/borrow-home"
+borrow_claude_dir="$borrow_home/.claude"
+mkdir -p "$borrow_home"
+( cd "$tmp" \
+  && HOME="$borrow_home" CODEX_CONFIG_DIR="$borrow_home/.codex" \
+     CLAUDE_CONFIG_DIR="$borrow_claude_dir" \
+     CODEX_CALL_LOG="$tmp/borrow-codex.log" CLAUDE_CALL_LOG="$tmp/borrow-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --global >/dev/null 2>&1 )
+
+borrow_state="$borrow_claude_dir/plugins/installed_plugins.json"
+# A project entry that HAS installPath, before a user entry that does not.
+jq '.plugins["claudio-dr@dr-agents"] =
+      ([{scope: "project", version: "0.0.1-project", installPath: "/project/claudio-dr"}]
+       + (.plugins["claudio-dr@dr-agents"] | map(del(.installPath))))' \
+  "$borrow_state" > "$borrow_state.tmp" && mv "$borrow_state.tmp" "$borrow_state"
+
+# Guard the fixture: it proves nothing unless the user entry really lacks the
+# field and the project entry really carries it.
+[[ "$(jq -r 'first(.plugins["claudio-dr@dr-agents"][] | select(.scope == "user") | has("installPath"))' \
+      "$borrow_state")" == "false" \
+   && "$(jq -r '.plugins["claudio-dr@dr-agents"][0].installPath' \
+      "$borrow_state")" == "/project/claudio-dr" ]] \
+  || { echo "FAIL: could not stage a user entry missing installPath" >&2; exit 1; }
+
+borrow_status="$( cd "$tmp" \
+  && HOME="$borrow_home" CODEX_CONFIG_DIR="$borrow_home/.codex" \
+     CLAUDE_CONFIG_DIR="$borrow_claude_dir" \
+     CODEX_CALL_LOG="$tmp/borrow-codex.log" CLAUDE_CALL_LOG="$tmp/borrow-claude.log" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/install" --status 2>&1 )"
+
+echo "$borrow_status" | grep -qF "/project/claudio-dr" \
+  && { echo "FAIL: --status reported a project-scoped path as the global claudio-dr install" >&2
+       echo "$borrow_status" >&2
+       exit 1; }
 
 echo "bin/install tests passed"
