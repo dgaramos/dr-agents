@@ -78,25 +78,79 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# JSON top-level string reader
+# ---------------------------------------------------------------------------
+
+# Read a TOP-LEVEL string field out of a JSON file. Prints nothing and returns
+# non-zero when the field is absent, is not at the top level, or is not a
+# string.
+#
+# This exists because `grep '"version"' … | head -1 | sed …` selects by position
+# in the FILE, not position in the OBJECT. A manifest that declares a nested
+# `version` — `metadata.version`, an entry under `agents`, an element of a
+# dependency array — ahead of its own gets read as the nested value. Measured on
+# dr-agents#466: with `metadata.version = 9.9.9` before top-level
+# `version = 1.2.3`, the old pipeline returned 9.9.9 and `jq -r .version`
+# returned 1.2.3.
+#
+# That pipeline had been copied four times in this file — twice for `version`,
+# once for an installed manifest's `version`, once for a release `tag_name`.
+# Four copies is why fixing one instance would not have held: the shape was
+# available to copy again. This is the single reading all four now go through.
+#
+# jq is not a dependency of this repository, so the fallback is a real parser
+# rather than a line match: it tracks brace and bracket depth OUTSIDE string
+# literals, honours backslash escapes so a `"version": "0.0.0"` sitting inside
+# some description string cannot be mistaken for the field, and accepts the key
+# only at depth 1. tests/test_install.sh runs both branches over shared
+# fixtures and asserts they agree, so a divergence cannot arrive in silence.
+json_top_level_string() {
+  local field="$1" file="$2"
+  [[ -f "$file" ]] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    jq -er --arg f "$field" '.[$f] | strings' "$file" 2>/dev/null || return 1
+  else
+    awk -v field="$field" '
+      { buf = buf $0 "\n" }
+      END {
+        n = length(buf)
+        for (i = 1; i <= n; i++) {
+          c = substr(buf, i, 1)
+          if (instr) {
+            if (c == "\\") { tok = tok substr(buf, i + 1, 1); i++; continue }
+            if (c == "\"") {
+              instr = 0
+              if (want) { print tok; exit 0 }
+              key = tok
+              continue
+            }
+            tok = tok c
+            continue
+          }
+          if (c == "\"") { instr = 1; tok = ""; continue }
+          # A non-string where the value was expected: the field exists but is a
+          # number, object, array or null. Print nothing.
+          if (want && c !~ /[ \t\r\n]/) { exit 1 }
+          if (c == "{" || c == "[") { depth++; continue }
+          if (c == "}" || c == "]") { depth--; continue }
+          if (c == ":") { if (depth == 1 && key == field) want = 1; continue }
+        }
+        exit 1
+      }
+    ' "$file" || return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Version helpers
 # ---------------------------------------------------------------------------
 
 claudio_version() {
-  local manifest="${REPO_DIR}/plugins/claudio-dr/.claude-plugin/plugin.json"
-  if command -v jq >/dev/null 2>&1; then
-    jq -r '.version' "${manifest}"
-  else
-    grep '"version"' "${manifest}" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
-  fi
+  json_top_level_string version "${REPO_DIR}/plugins/claudio-dr/.claude-plugin/plugin.json"
 }
 
 cody_version() {
-  local manifest="${REPO_DIR}/plugins/cody-dr/.codex-plugin/plugin.json"
-  if command -v jq >/dev/null 2>&1; then
-    jq -r '.version' "${manifest}"
-  else
-    grep '"version"' "${manifest}" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
-  fi
+  json_top_level_string version "${REPO_DIR}/plugins/cody-dr/.codex-plugin/plugin.json"
 }
 
 # The one place the "which claudio-dr@dr-agents entry does Claude use?"
@@ -360,13 +414,7 @@ installed_version() {
     echo "not installed"
     return
   fi
-  if command -v jq >/dev/null 2>&1; then
-    jq -r '.version // "unknown"' "${manifest}" 2>/dev/null || echo "unknown"
-  else
-    grep '"version"' "${manifest}" | head -1 \
-      | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
-      || echo "unknown"
-  fi
+  json_top_level_string version "${manifest}" || echo "unknown"
 }
 
 # ---------------------------------------------------------------------------
@@ -482,9 +530,21 @@ mode_download() {
   # Resolve version
   if [[ -z "${version}" ]]; then
     echo "Resolving latest release from GitHub..."
-    local api_response
+    # Through the same reader as the manifest versions. A release payload nests
+    # objects (`author`, `assets[]`), so selecting the first line that mentions
+    # the key is the same defect here as it was there; this takes the top-level
+    # field or fails.
+    #
+    # The response is still read from stdout and only then written to a file for
+    # the reader. Passing `curl -o` instead would have been the smaller diff and
+    # is wrong: what changed here is the parsing, not the transport, and
+    # tests/test_install_download.sh's curl stub answers /releases/latest on
+    # stdout. Switching to -o makes that fixture silently yield an empty file.
+    local api_response api_response_file
     api_response="$(curl -fsSL "${api_base}/releases/latest")"
-    version="$(echo "${api_response}" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+    api_response_file="${tmp_dir}/releases-latest.json"
+    printf '%s' "${api_response}" > "${api_response_file}"
+    version="$(json_top_level_string tag_name "${api_response_file}")" || version=""
     if [[ -z "${version}" ]]; then
       echo "ERROR: could not resolve latest release version from GitHub" >&2
       exit 1
