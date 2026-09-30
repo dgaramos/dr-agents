@@ -315,6 +315,44 @@ registered_claudio_entry_field() {
     # contain the field name, so matching the key anywhere in the entry is
     # not the same question as matching it at depth 1.
     value="$(printf '%s' "${entry}" | awk -v field="${field}" '
+      # Decode one escape starting at the backslash at position p, and set
+      # esclen to how many characters it consumed. A JSON escape is an encoding,
+      # not quoting to discard: an earlier revision appended the character after
+      # the backslash unchanged, which is right only for `\"` and `\\` and read
+      # `\u0031` as `u0031` where jq reads `1`. Measured on dr-agents#466.
+      #
+      # `\b \f \n \r \t` are single bytes, so they decode exactly here — this
+      # reader does not need the printable-ASCII domain json_top_level_string()
+      # imposes, because its values include a filesystem path. Only a `\uXXXX`
+      # above 0x7F is unrepresentable, and the caller has already refused any
+      # entry containing one, so reaching it here is a bug rather than input.
+      function unesc(b, p,   e, hex, cp) {
+        e = substr(b, p + 1, 1)
+        esclen = 2
+        if (e == "\"" || e == "\\" || e == "/") return e
+        if (e == "b") return sprintf("%c", 8)
+        if (e == "f") return sprintf("%c", 12)
+        if (e == "n") return "\n"
+        if (e == "r") return sprintf("%c", 13)
+        if (e == "t") return "\t"
+        if (e == "u") {
+          hex = substr(b, p + 2, 4)
+          if (hex ~ /^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$/) {
+            cp = 0
+            for (k = 1; k <= 4; k++) {
+              d = index("0123456789abcdef", tolower(substr(hex, k, 1)))
+              cp = cp * 16 + (d - 1)
+            }
+            esclen = 6
+            if (cp >= 1 && cp <= 127) return sprintf("%c", cp)
+            # Guarded by the caller; refuse rather than answer unlike jq.
+            exit 1
+          }
+          exit 1
+        }
+        # An escape JSON does not define.
+        exit 1
+      }
       { buf = buf $0 "\n" }
       END {
         n = length(buf)
@@ -331,7 +369,7 @@ registered_claudio_entry_field() {
           key = ""; i++
           while (i <= n) {
             c = substr(buf, i, 1)
-            if (c == "\\") { key = key substr(buf, i + 1, 1); i += 2; continue }
+            if (c == "\\") { key = key unesc(buf, i); i += esclen; continue }
             if (c == "\"") { i++; break }
             key = key c; i++
           }
@@ -345,7 +383,7 @@ registered_claudio_entry_field() {
             val = ""; i++
             while (i <= n) {
               c = substr(buf, i, 1)
-              if (c == "\\") { val = val substr(buf, i + 1, 1); i += 2; continue }
+              if (c == "\\") { val = val unesc(buf, i); i += esclen; continue }
               if (c == "\"") { i++; break }
               val = val c; i++
             }
@@ -384,9 +422,112 @@ registered_claudio_entry_field() {
 # Select the entry, then read the field off it. Composition order is fixed
 # here, once, for every caller and both parsers.
 # Prints the field of the selected entry, or nothing.
+# Refuse a state file carrying an escape the two branches cannot answer alike.
+#
+# The check is on the RAW file, and it has to be: in the jq branch
+# registered_claudio_entry() re-serializes the entry, which decodes `\u00e9`
+# into raw UTF-8 before registered_claudio_entry_field() ever sees it, so a
+# guard placed downstream fires on one branch only. Measured while fixing
+# dr-agents#466 — it read the path as `/Users/José` under jq and refused under
+# awk, which is the silent divergence dr-agents#461 exists to forbid.
+#
+# The condition is deliberately narrow. Unlike json_top_level_string(), the
+# domain here cannot be "printable ASCII in the decoded value": one field read
+# is `installPath`, and a home directory with an accent is valid. A RAW UTF-8
+# byte therefore passes through both branches untouched — which is the form
+# Claude Code actually writes, since JSON.stringify emits non-ASCII raw rather
+# than escaped. Only a `\uXXXX` above 0x7F is refused, because emitting it from
+# awk means emitting UTF-8 and `sprintf("%c", n)` for n > 127 is
+# implementation-defined: gawk yields a locale-encoded wide character, BWK awk a
+# raw byte.
+#
+# This trades a capability for a guarantee: a state file with an escaped
+# non-ASCII path would be read under jq today and is refused on both branches
+# now. That is the stated constraint of this file — a loud failure is
+# acceptable, two branches disagreeing in silence is not.
+state_has_unrepresentable_escape() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+
+  # Scanned with the shell's own pattern matching rather than grep. A guard has
+  # to fail loudly when it cannot run, and an earlier revision piped grep with
+  # `|| true`: on a PATH without grep it silently found nothing and reported the
+  # file clean, which is the same class of defect it exists to catch. bash is
+  # already a hard requirement of this script, so this depends on nothing else.
+  #
+  # It walks the text as a JSON grammar rather than searching it for the two
+  # characters `\u`. A substring scan is wrong twice over, and dr-agents#469
+  # measured the first one: `"/a\\u00e9x"` is a backslash that is itself
+  # escaped followed by the literal text `u00e9x`, which jq reads as the
+  # six-character suffix with no decoding at all, and the scan found the second
+  # backslash, parsed `00e9` and refused a healthy installation. Honouring
+  # backslash parity alone would fix that case.
+  #
+  # Parity alone is NOT what is implemented, and the reason is the point.
+  # Parity is only meaningful inside a JSON string, because that is the only
+  # place a backslash begins an escape; a backslash anywhere else is not
+  # invalid-but-harmless, it makes the parity state of everything after it
+  # meaningless. Tracking `instr` is what makes the question the scanner asks
+  # ("is this an escape?") the same question JSON answers, instead of an
+  # approximation of it that happens to agree on today's fixtures. This is the
+  # fourth instance of one root error in this file -- treating JSON as text to
+  # pattern-match rather than as a grammar to parse -- so the fix is the
+  # grammar, not the symptom. The two decoders this guard protects already walk
+  # this way, which is why neither had the defect.
+  local text n i c e hex cp instr
+  text="$(cat "$file")" || return 1
+
+  # Every escape begins with a backslash, so a file without one cannot contain
+  # an escape. This is a sound precondition rather than the decision itself —
+  # the walk below is what answers the question — and it keeps the common case
+  # O(1): Claude Code's JSON.stringify emits non-ASCII raw, so a real state file
+  # normally has no backslash at all. The character walk is O(n^2) in bash
+  # substring extraction (1.5s on a synthetic 23KB file, 12ms on the 405-byte
+  # file actually written here), which is affordable only because it is rare.
+  [[ "$text" == *'\'* ]] || return 1
+
+  n=${#text}
+  i=0
+  instr=0
+  while (( i < n )); do
+    c="${text:i:1}"
+    if (( instr )); then
+      if [[ "$c" == '\' ]]; then
+        # An escape consumes its backslash AND the character it escapes, so a
+        # `\\` can never be mistaken for the start of a `\u`.
+        e="${text:i+1:1}"
+        if [[ "$e" == "u" ]]; then
+          hex="${text:i+2:4}"
+          if [[ "$hex" == [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f] ]]; then
+            cp=$((16#$hex))
+            (( cp > 127 )) && return 0
+            i=$(( i + 6 ))
+            continue
+          fi
+          # A malformed `\u`: not an escape awk cannot emit. Both branches
+          # already agree on it, so it is not this guard's business.
+        fi
+        i=$(( i + 2 ))
+        continue
+      fi
+      [[ "$c" == '"' ]] && instr=0
+      i=$(( i + 1 ))
+      continue
+    fi
+    [[ "$c" == '"' ]] && instr=1
+    i=$(( i + 1 ))
+  done
+  return 1
+}
+
 registered_claudio_field() {
   local state="$1"
   local field="$2"
+
+  if state_has_unrepresentable_escape "${state}"; then
+    echo "state ${state} contains a \\uXXXX escape above 0x7F, which the jq-free reader cannot represent identically" >&2
+    return 1
+  fi
 
   registered_claudio_entry_field "$(registered_claudio_entry "${state}")" "${field}"
 }

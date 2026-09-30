@@ -678,14 +678,19 @@ readers="$tmp/readers.sh"
 # so all three are extracted. Naming them explicitly is also the check that the
 # split still exists: collapsing them back into one function, which is what
 # made the wrong composition order representable, fails here.
+# state_has_unrepresentable_escape() is extracted with them: it is the guard
+# registered_claudio_field() calls before either branch runs, so a differential
+# that left it out would exercise the readers without the thing that keeps the
+# two branches answering alike on escaped input.
 awk '
+  /^state_has_unrepresentable_escape\(\) \{$/ { inside = 1 }
   /^registered_claudio_entry\(\) \{$/ { inside = 1 }
   /^registered_claudio_entry_field\(\) \{$/ { inside = 1 }
   /^registered_claudio_field\(\) \{$/ { inside = 1 }
   inside { print }
   inside && /^\}$/ { inside = 0 }
 ' "$repository_root/bin/install" > "$readers"
-for reader_fn in registered_claudio_entry registered_claudio_entry_field registered_claudio_field; do
+for reader_fn in state_has_unrepresentable_escape registered_claudio_entry registered_claudio_entry_field registered_claudio_field; do
   grep -q "^$reader_fn() {\$" "$readers" \
     || { echo "FAIL: could not extract $reader_fn from bin/install" >&2; exit 1; }
 done
@@ -945,6 +950,126 @@ done
 # silently. 2 fields x (1 empty + 9 single + 81 pairs).
 [[ "$sweep_checked" -eq 182 ]] \
   || { echo "FAIL: reader shape sweep checked $sweep_checked cases, expected 182" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# dr-agents#466 follow-up: a JSON escape is an encoding, not quoting to discard
+#
+# Both loops in registered_claudio_entry_field() used to append the character
+# after the backslash unchanged. That is right for `\"` and `\\` -- the two
+# escapes where discarding and decoding coincide, and the only two any fixture
+# above uses, which is why 182 differential cases passed over it -- and wrong
+# for everything else: `3` read as `u0033` where jq reads `3`.
+#
+# The domain here is NOT json_top_level_string()'s printable ASCII: one field
+# read is installPath, and a home directory with an accent in it is valid. So a
+# RAW UTF-8 byte must pass through both branches untouched, and only a `\uXXXX`
+# above 0x7F is refused -- awk cannot emit it portably, and
+# state_has_unrepresentable_escape() makes both branches refuse it together.
+#
+# Each fixture is written with a literal backslash and then CHECKED for one.
+# Three probes during this fix passed over nothing because the toolchain writing
+# the fixture decoded the escape before it reached disk; a fixture that does not
+# contain what it claims is worse than no fixture.
+escape_dir="$fixtures/escapes"
+mkdir -p "$escape_dir"
+
+escape_checked=0
+escape_case() {
+  # $1 name, $2 entry body, $3 field, $4 expected value, $5 expected status
+  local name="$1" body="$2" field="$3" expected="$4" expected_status="$5"
+  local state="$escape_dir/$name.json"
+  printf '{"version":2,"plugins":{"claudio-dr@dr-agents":[{"scope":"user",%s}]}}' "$body" > "$state"
+
+  # Every case here except the raw-UTF-8 one is ABOUT an escape, so the written
+  # fixture must contain a backslash. Checking only when the body still shows one
+  # is the blind spot that let four decoded fixtures pass as if they tested
+  # something: by then the body had already lost it.
+  if [[ "$name" != raw-utf8-* ]]; then
+    grep -q '\\' "$state" || {
+      echo "FAIL: escape fixture $name is vacuous -- no backslash reached disk" >&2
+      exit 1
+    }
+  fi
+
+  local jq_out awk_out jq_status awk_status
+  jq_out="$(read_field "$PATH" "$state" "$field" 2>/dev/null)" && jq_status=0 || jq_status=$?
+  awk_out="$(read_field "$nojq_bin" "$state" "$field" 2>/dev/null)" && awk_status=0 || awk_status=$?
+
+  [[ "$jq_out" == "$awk_out" ]] || {
+    echo "FAIL: $name: jq and awk disagree: jq -> '$jq_out'  awk -> '$awk_out'" >&2
+    exit 1
+  }
+  [[ "$jq_status" == "$awk_status" ]] || {
+    echo "FAIL: $name: jq and awk disagree on status: jq -> $jq_status  awk -> $awk_status" >&2
+    exit 1
+  }
+  [[ "$jq_out" == "$expected" ]] || {
+    echo "FAIL: $name: expected '$expected', both branches returned '$jq_out'" >&2
+    exit 1
+  }
+  [[ "$jq_status" == "$expected_status" ]] || {
+    echo "FAIL: $name: expected status $expected_status, got $jq_status" >&2
+    exit 1
+  }
+  escape_checked=$((escape_checked + 1))
+}
+
+# Every body below assembles its backslash from $bs rather than writing one
+# next to a `u`. Four fixtures in the first version of this block were silently
+# decoded before they reached disk -- the `u0033` one arrived as a plain `3` --
+# so the cases that mattered most were testing ordinary input. Assembling the
+# byte means no backslash-u sequence exists anywhere for a toolchain to
+# helpfully interpret on its way to the file.
+bs='\'
+
+# Decoded, not discarded. The u0033 case is the exact divergence reported.
+escape_case "u-escape-version" "\"version\":\"0.1.4${bs}u0033\"" version "0.1.43" 0
+escape_case "u-escape-hyphen" "\"version\":\"1.0.0${bs}u002d1\"" version "1.0.0-1" 0
+escape_case "escaped-slash" "\"installPath\":\"${bs}/Users${bs}/d\"" installPath "/Users/d" 0
+escape_case "escaped-quote" "\"version\":\"a${bs}\"b\"" version 'a"b' 0
+escape_case "escaped-backslash" "\"version\":\"a${bs}${bs}b\"" version 'a\b' 0
+
+# dr-agents#469: an escaped backslash is not the start of an escape. The guard
+# state_has_unrepresentable_escape() used to search the raw text for the two
+# characters backslash-u without asking whether that backslash was itself
+# escaped, so the three cases below -- all valid, all decoding to something the
+# awk branch can emit or must refuse -- were answered by a scan of the file
+# rather than by the grammar. The first was measured refusing a healthy
+# installPath outright. Each body assembles every backslash from $bs, so no
+# backslash-u sequence exists in this source for the toolchain to decode on its
+# way to disk; the vacuousness check above still applies to all three.
+#
+# Two backslashes then literal `u00e9x`: jq decodes the pair to one backslash
+# and reads the rest as six ordinary characters. Nothing is escaped, so nothing
+# is unrepresentable, and both branches must return the value.
+escape_case "escaped-backslash-then-literal-u" \
+  "\"installPath\":\"/a${bs}${bs}u00e9x\"" installPath "/a${bs}u00e9x" 0
+# Three backslashes then `u0041b`: the first two decode to one backslash, the
+# third begins a REAL escape that lands in printable ASCII. Parity has to be
+# tracked, not assumed in either direction.
+escape_case "escaped-backslash-then-real-escape" \
+  "\"version\":\"a${bs}${bs}${bs}u0041b\"" version "a${bs}Ab" 0
+# The same shape with a non-ASCII code point: here the escape IS real and IS
+# unrepresentable, so the guard must fire. This is the case a parity fix could
+# break by skipping one backslash too many.
+escape_case "triple-backslash-non-ascii" \
+  "\"installPath\":\"/a${bs}${bs}${bs}u00e9x\"" installPath "" 1
+escape_case "tab-in-path" "\"installPath\":\"/a${bs}tb\"" installPath "$(printf '/a\tb')" 0
+escape_case "escaped-non-ascii" "\"installPath\":\"/Users/Jos${bs}u00e9x\"" installPath "" 1
+escape_case "surrogate-pair" "\"installPath\":\"${bs}ud83d${bs}ude00\"" installPath "" 1
+escape_case "lone-high-surrogate" "\"installPath\":\"${bs}ud83d\"" installPath "" 1
+# A malformed escape is not an unrepresentable one: the guard is about escapes
+# awk cannot emit, not about JSON validity. Both branches read nothing and both
+# succeed, which is agreement -- the property this block exists to protect.
+escape_case "malformed-u" "\"version\":\"${bs}uZZ99\"" version "" 0
+
+# A RAW UTF-8 byte is the form Claude Code actually writes, since JSON.stringify
+# emits non-ASCII unescaped. It must survive both branches untouched: refusing it
+# would reject a valid installation under an accented home directory.
+escape_case "raw-utf8-path" '"installPath":"/Users/José/x"' installPath "/Users/José/x" 0
+[[ "$escape_checked" -eq 14 ]] \
+  || { echo "FAIL: escape differential checked $escape_checked cases, expected 14" >&2; exit 1; }
+echo "ok: escape differential: $escape_checked cases agree across both branches"
 
 # Guard the guard: the differential is worthless if the no-jq run silently
 # used jq anyway. Prove the awk branch is the one that answered.
