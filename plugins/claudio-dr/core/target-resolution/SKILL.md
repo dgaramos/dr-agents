@@ -15,7 +15,10 @@ variable itself.
 
 - In `checkout` mode, discover the target profile with
   `core/profile-discovery/scripts/discover-project-profile.sh --root <checkout>`
-  and run local repository operations only in that checkout.
+  and run local repository operations only in that checkout. Exit 4, or a
+  stderr candidate report at exit 0, means nothing was accepted and something
+  profile-shaped was rejected: load no profile, and name the rejected path and
+  reason on the `**Profile:**` line instead of reporting a plain absence.
 - In `remote-only` mode, do not load the current directory's profile or run git
   there on behalf of the target. Use repository-qualified remote reads and
   declare `**Profile:** none (remote-only)`.
