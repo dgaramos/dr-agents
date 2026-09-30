@@ -1264,6 +1264,48 @@ mode_global() {
     exit 1
   fi
 
+  # The version agreeing is not the payload agreeing.
+  #
+  # The check above compares two version STRINGS. A payload that changed without
+  # a version bump satisfies it, and the registered installPath is a real
+  # directory — a copy, not a symlink to the checkout — so it can hold different
+  # bytes than the catalog while both call themselves the same version. That is
+  # the hole: `Global install complete` over a stale copy, with nothing saying so.
+  #
+  # `gitCommitSha` looks like the field for this and is not: Claude Code writes
+  # it, nothing in this repository reads it, and an update that finds the version
+  # unchanged leaves it pointing at whatever commit it recorded first. Measured
+  # on 2026-09-29 — a successful `agents update --global` left it two merges
+  # behind while the version matched and the gate passed. Provenance recorded by
+  # someone else and verified by no one is not evidence, so this compares the
+  # bytes that are actually going to load instead.
+  #
+  # No false alarm on a healthy install: --global copies the catalog payload, so
+  # the two are equal unless something really diverged. Reported, not repaired,
+  # for the same reason the stub mismatch is reported rather than overwritten
+  # (dr-agents#282): silently restoring the copy hides the forgotten bump from
+  # the one person able to fix it.
+  local recorded_payload
+  recorded_payload="$(registered_claudio_field "${claude_config}/plugins/installed_plugins.json" installPath)" || recorded_payload=""
+  if [[ -n "${recorded_payload}" && -d "${recorded_payload}" ]]; then
+    if ! diff -r -q "${recorded_payload}" "${REPO_DIR}/plugins/claudio-dr" >/dev/null 2>&1; then
+      echo "" >&2
+      echo "Claude records claudio-dr ${recorded_claudio_ver}, and the catalog agrees," >&2
+      echo "but the registered payload differs from the catalog's." >&2
+      echo "  recorded: ${recorded_payload}" >&2
+      echo "  catalog : ${REPO_DIR}/plugins/claudio-dr" >&2
+      echo "Matching versions over different bytes means a payload changed without a" >&2
+      echo "version bump, or the registered copy was edited in place. Bump the plugin" >&2
+      echo "version in the catalog and reinstall, or re-run with --force." >&2
+      echo "Not reporting completion." >&2
+      diff -r -q "${recorded_payload}" "${REPO_DIR}/plugins/claudio-dr" 2>&1 | sed 's/^/  /' >&2 || true
+      if [[ "${FORCE:-0}" != "1" ]]; then
+        exit 1
+      fi
+      echo "  --force is set; continuing over the payload difference." >&2
+    fi
+  fi
+
   report_legacy_claudio_copy "${claude_config}"
 
   echo ""
