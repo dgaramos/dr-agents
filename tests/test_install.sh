@@ -190,6 +190,85 @@ if echo "$lying_output" | grep -q "Global install complete"; then
 fi
 
 # ---------------------------------------------------------------------------
+# Matching versions over different bytes
+#
+# Every fixture above makes the two versions DISAGREE. None of them can tell
+# apart a gate that compares version strings from one that checks the payload,
+# because in all of them the string comparison already fails. This one makes the
+# versions agree exactly and diverges the bytes instead: the recorded version is
+# the catalog version, the manifest at installPath is the catalog version, and
+# the registered directory holds a file the catalog does not.
+#
+# That is the state a payload changed without a version bump produces, and the
+# version-only gate reported "Global install complete" over it. The registered
+# installPath is a real directory rather than a symlink to the checkout, so it
+# can hold stale bytes indefinitely while calling itself the current version.
+# ---------------------------------------------------------------------------
+payload_path="$lying_claude_dir/plugins/cache/dr-agents/claudio-dr/$claudio_ver"
+rm -rf "$payload_path"
+cp -R "$repository_root/plugins/claudio-dr" "$payload_path"
+jq -n --arg path "$payload_path" --arg version "$claudio_ver" \
+  '{version: 2, plugins: {"claudio-dr@dr-agents": [{scope: "user", installPath: $path, version: $version}]}}' \
+  > "$lying_claude_dir/plugins/installed_plugins.json"
+
+# With the payload a faithful copy, the gate must still complete: a check that
+# fires on a healthy install is worse than no check, because it gets ignored.
+if ! healthy_output="$( cd "$tmp" \
+    && HOME="$lying_home" CODEX_CONFIG_DIR="$lying_home/.codex" \
+       CLAUDE_CONFIG_DIR="$lying_claude_dir" \
+       CODEX_CALL_LOG="$tmp/lying-codex.log" CLAUDE_CALL_LOG="$tmp/lying-claude.log" \
+       PATH="$lying_bin:$PATH" \
+       bash "$repository_root/bin/install" --global 2>&1 )"; then
+  echo "FAIL: --global rejected a faithful payload copy at the catalog version" >&2
+  echo "$healthy_output" >&2
+  exit 1
+fi
+echo "ok: --global completes when the registered payload matches the catalog"
+
+# Now diverge the bytes, leaving both versions untouched.
+printf 'this file is not in the catalog\n' > "$payload_path/DRIFTED-PAYLOAD.md"
+
+# Guard the fixture: the versions must genuinely still agree, or this only
+# retests the version comparison above.
+[[ "$(jq -r '(.plugins["claudio-dr@dr-agents"] // []) | map(.version // empty) | first // empty' \
+      "$lying_claude_dir/plugins/installed_plugins.json")" == "$claudio_ver" ]] \
+  || { echo "FAIL: could not stage a matching-version payload divergence" >&2; exit 1; }
+
+if payload_output="$( cd "$tmp" \
+    && HOME="$lying_home" CODEX_CONFIG_DIR="$lying_home/.codex" \
+       CLAUDE_CONFIG_DIR="$lying_claude_dir" \
+       CODEX_CALL_LOG="$tmp/lying-codex.log" CLAUDE_CALL_LOG="$tmp/lying-claude.log" \
+       PATH="$lying_bin:$PATH" \
+       bash "$repository_root/bin/install" --global 2>&1 )"; then
+  echo "FAIL: --global exited 0 with a registered payload that differs from the catalog" >&2
+  echo "$payload_output" >&2
+  exit 1
+fi
+if echo "$payload_output" | grep -q "Global install complete"; then
+  echo "FAIL: --global claimed completion over a divergent payload" >&2; exit 1
+fi
+echo "$payload_output" | grep -qF "DRIFTED-PAYLOAD.md" \
+  || { echo "FAIL: --global did not name the differing file; output: $payload_output" >&2; exit 1; }
+echo "$payload_output" | grep -qF "$payload_path" \
+  || { echo "FAIL: --global did not name the registered payload path; output: $payload_output" >&2; exit 1; }
+echo "ok: --global refuses completion when the payload differs at a matching version"
+
+# --force is the documented escape hatch and must still get through.
+if ! forced_output="$( cd "$tmp" \
+    && HOME="$lying_home" CODEX_CONFIG_DIR="$lying_home/.codex" \
+       CLAUDE_CONFIG_DIR="$lying_claude_dir" \
+       CODEX_CALL_LOG="$tmp/lying-codex.log" CLAUDE_CALL_LOG="$tmp/lying-claude.log" \
+       PATH="$lying_bin:$PATH" \
+       bash "$repository_root/bin/install" --global --force 2>&1 )"; then
+  echo "FAIL: --global --force did not get past a payload difference" >&2
+  echo "$forced_output" >&2
+  exit 1
+fi
+echo "ok: --global --force continues over a payload difference"
+
+rm -f "$payload_path/DRIFTED-PAYLOAD.md"
+
+# ---------------------------------------------------------------------------
 # dr-agents#455: the gate reads the RECORDED version, not the payload manifest
 #
 # The two readings are distinct, and every other fixture here moves them
