@@ -2,9 +2,10 @@
 
 The reusable publisher workflows in `.github/workflows/reusable-publish-*.yml`
 are consumed by other repositories. They are released under their own moving tag,
-**`workflows-v1`**, which is deliberately separate from the catalog's `v0.1.x`
-version line: a patch release of the catalog must never move what four
-repositories execute.
+**`workflows-v1`**, which is deliberately separate from the catalog's own
+version: a change to the catalog must never move what four repositories
+execute merely by landing on `main`. Promotion of this tag is the only event
+that does.
 
 ## Why a moving tag
 
