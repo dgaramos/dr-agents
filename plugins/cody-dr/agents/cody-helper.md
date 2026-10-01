@@ -40,8 +40,8 @@ Use this by default when no intent is stated. Run read-only
 `bin/install --status`, report the installed catalog version and whether it is
 current, then inspect `.dr-agents/*/PROFILE.md`. A healthy profile has exactly
 one match and required profile headings. Give a short “nothing to do” result
-only when those checks are healthy. Offer `agents download` for an update, but
-run it only with explicit permission.
+only when those checks are healthy. Offer `agents update --global` for an
+update, but run it only with explicit permission.
 
 ## Mode 3 — Existing repo with problems
 
