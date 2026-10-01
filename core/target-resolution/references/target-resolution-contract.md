@@ -49,6 +49,19 @@ its path or `none (no profile at checkout)`. In `remote-only` mode, load no
 profile and report `none (remote-only)`. Never apply the current directory's
 profile to another target.
 
+When discovery accepts nothing but reports a rejected profile-shaped candidate
+(`core/profile-discovery/references/profile-discovery-contract.md`), do not
+report a plain absence. No profile is loaded, but the profile line names the
+rejected path and its reason, so a briefing built on "no profile" is visibly
+uncertain at the point it is built:
+
+```md
+**Profile:** none (rejected candidate: /absolute/path/.dr-agents/PROFILE.md — not nested in a project directory)
+```
+
+Reserve `none (no profile at checkout)` for a genuine absence, where discovery
+reported no candidate at all.
+
 ## Remote branch writes (RF-08, RNF-04)
 
 In `remote-only` mode, a separately authorized write creates or updates a
@@ -117,7 +130,9 @@ or:
 ```
 
 When a checkout has no profile, use `**Profile:** none (no profile at
-checkout)`. Failure before resolution uses `**Target:** unknown`.
+checkout)`; when discovery rejected a candidate instead, use the
+`none (rejected candidate: ...)` form from RF-05. Failure before resolution uses
+`**Target:** unknown`.
 
 ## Failure handling (RF-01, RF-02, RF-03)
 
