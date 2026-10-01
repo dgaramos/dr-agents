@@ -194,10 +194,9 @@ The installer delegates each adapter to its own CLI — `claude plugin` and
 `codex plugin` — and copies no plugin tree into `~/.claude/` or
 `~/.codex/plugins/cache/cody-dr/`. Re-running `agents update --global`
 refreshes the same marketplace registrations the two tools load, and re-records
-the installed version. Both CLIs are therefore required for a global install,
-including `bin/install --download`: the extracted release is registered as a
-local marketplace rather than copied into place, so there is no offline
-direct-copy path.
+the installed version. Both CLIs are therefore required for a global install:
+the marketplace is the sole global installation mechanism, so no plugin payload
+is ever copied into place alongside the registration it could drift against.
 
 A host installed before this change still carries a direct copy of Claudio DR
 under `~/.claude/`. The installer reports those paths and leaves them alone;
@@ -219,48 +218,16 @@ agents install --global              # install claudio-dr, cody-dr, and the agen
 agents install --workflows [--force] # install publisher dispatch stubs only (no adapter plugins)
 agents install --repo                # install claudio-dr into the current repo
 agents install --repo --profile <name>   # with a project-specific profile
-agents download                      # download from GitHub releases and install globally (no git required)
-agents download --version v1.2.3     # pin to a specific release tag
 agents status                        # show installed versions and locations
 agents update --global [--force]     # pull catalog and update global install
 agents update --global --workflows   # pull catalog and update managed workflows in the current directory
 agents update --repo [--profile <name>]  # pull and update repo-local install
-agents update --download             # update a download-based install to the latest release
 agents update --all [--force]        # pull and update both installs
 ```
 
 The install scripts detect conflicts and never silently overwrite an existing
 file whose content differs from the source. Pass `--force` to resolve a
 reported conflict in favor of the catalog.
-
-### Tarball install (no git required)
-
-Download and install directly from a GitHub release without cloning the
-repository. This is the recommended method for machines where git is
-unavailable or where you want a pinned, immutable version:
-
-```bash
-# Install the latest release
-bin/install --download
-
-# Install a specific version
-bin/install --download --version v1.2.3
-```
-
-The tarball is downloaded from GitHub releases, its SHA-256 checksum is
-verified, and the catalog is extracted to
-`~/.local/share/dr-agents/<version>/`. The `agents` CLI wrapper is written to
-`~/.local/bin/agents`. Previous version directories are preserved for manual
-rollback.
-
-To update a download-based install to the latest release:
-
-```bash
-agents update --download
-```
-
-`bin/check` handles the non-git context gracefully when run from an extracted
-tarball — git-specific checks are skipped automatically.
 
 ### direnv (optional, for catalog development)
 
@@ -420,15 +387,15 @@ plugins/cody-dr/         Codex adapter — identity and platform mechanics only
 profiles/                Project profiles — architecture, commands, metadata, publishers
 examples/                One generic example per core skill area
 docs/                    Architecture, compatibility, adapter, and development docs
-bin/agents               Unified CLI entrypoint (install / download / update / status)
-bin/check                Catalog quality gate — run before every handoff; skips git checks outside a git repository (e.g. an extracted tarball)
-bin/install              Install plugins globally or into a repo; detects conflicts; --download installs from GitHub releases without cloning
-bin/update               Pull the catalog and re-run bin/install for active installs; --download updates a tarball-based install
+bin/agents               Unified CLI entrypoint (install / update / status)
+bin/check                Catalog quality gate — run before every handoff; skips git checks outside a git repository
+bin/install              Install plugins globally or into a repo through each host's marketplace; detects conflicts
+bin/update               Pull the catalog and re-run bin/install for active installs
 bin/drift                Profile-drift detector — checks profiles against current core contracts
 bin/install-global-agents        Symlink the plugin agents into ~/.claude/agents/
 bin/stamp-workflow-versions      Stamp each managed publisher stub with its plugin's catalog version
 bin/sync-plugin-core-bundles.sh  Regenerate the plugin-local core copies from core/
-.github/workflows/       CI, publisher dispatch (claudio + cody), reusable publisher jobs, smoke tests, and release
+.github/workflows/       CI, publisher dispatch (claudio + cody), reusable publisher jobs, and smoke tests
 ```
 
 ## Publishing
@@ -439,9 +406,14 @@ the secret names only — never a value. Review, reply, thread resolution, PR
 creation, PR metadata, issue creation, and issue comments each have their own
 publisher for both apps, built on a shared reusable workflow per action.
 
-Releases are automated: pushing a tag builds and publishes a versioned tarball
-with its SHA-256 checksum to GitHub releases, which is what the `--download`
-install path consumes. See [docs/app-publishing.md](docs/app-publishing.md) and
+Every publisher stub a consuming repository installs calls the central
+definition through the moving tag `workflows-v1`, and passes that same ref back
+as `catalog_ref` so the workflow, its scripts, and the contracts it reads all
+come from one commit. Promoting that tag is how a behavior fix reaches every
+consumer without a commit in any of them; repointing it is the rollback. The
+tag is deliberately independent of the catalog's own version line — a patch
+release must never move what consuming repositories execute. See
+[docs/app-publishing.md](docs/app-publishing.md) and
 [docs/workflow-releases.md](docs/workflow-releases.md).
 
 ## Contributing
