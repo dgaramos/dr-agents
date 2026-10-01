@@ -4,6 +4,28 @@ All notable changes to this catalog are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.44] - 2026-10-01
+
+Both helper agents stop recommending a removed command. Reinstall to pick up
+the corrected update advice.
+
+### Fixed
+
+- `claudio-helper` and `cody-helper` advised `agents download` for an update, a
+  subcommand removed in 0.1.43's release-path cleanup, so a user following the
+  advice got `Unknown command` and exit 1. Both now advise
+  `agents update --global`, with the explicit-permission caveat unchanged.
+- `tests/test_helper_agents.sh` asserted the literal string `agents download`
+  as required helper content, so the suite stayed green because of the defect.
+  It now derives the valid subcommand set from the dispatch in `bin/agents` and
+  rejects any `agents <command>` a helper cites that is not in that set, in
+  either direction and in both adapters.
+
+### Changed
+
+- Both plugin manifests, marketplace entries, and publisher stub markers now
+  carry `0.1.44`.
+
 ## [0.1.43] - 2026-09-28
 
 Both adapters gain a read-only `guide` skill that describes the installed
