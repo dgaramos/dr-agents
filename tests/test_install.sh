@@ -678,11 +678,11 @@ repo_expected="$(< "$repository_root/plugins/claudio-dr/.claude-plugin/plugin.js
 # ---------------------------------------------------------------------------
 # Mutually exclusive mode flags
 #
-# --global, --repo, --download, --status and --workflows are five alternative
-# invocations in usage(); no two may be combined. The argument loop was
-# last-wins, so a pair was silently resolved to whichever flag came last and
-# then executed — `bin/install --global --download` performed a download-based
-# install. This is the same defect fixed in bin/update for dr-agents#299, and
+# --global, --repo, --status and --workflows are four alternative invocations in
+# usage(); no two may be combined. The argument loop was last-wins, so a pair
+# was silently resolved to whichever flag came last and then executed — a
+# `bin/install --global <other-mode>` pair performed the other mode's install.
+# This is the same defect fixed in bin/update for dr-agents#299, and
 # bin/install is reached directly through `agents install`.
 #
 # Each case asserts the cause, not just a non-zero exit, so that an unrelated
@@ -692,7 +692,7 @@ readonly install_scratch="$tmp/install-scratch"
 mkdir -p "$install_scratch"
 rm -rf "$fake_home/.claude" "$codex_dir" "$fake_home/.local"
 
-readonly install_mode_flags=(global repo download status workflows)
+readonly install_mode_flags=(global repo status workflows)
 
 for first in "${install_mode_flags[@]}"; do
   for second in "${install_mode_flags[@]}"; do
@@ -1253,5 +1253,62 @@ echo "$borrow_status" | grep -qF "/project/claudio-dr" \
   && { echo "FAIL: --status reported a project-scoped path as the global claudio-dr install" >&2
        echo "$borrow_status" >&2
        exit 1; }
+
+# ---------------------------------------------------------------------------
+# The removed download route (dr-agents#483). Neither `--download` nor the
+# `--version` pin it took is a flag any more: each must be rejected as an
+# unknown argument, and neither may appear in usage().
+# ---------------------------------------------------------------------------
+for removed in --download --version; do
+  removed_out="$(run_install "$install_scratch" "$removed" 2>&1 || true)"
+  if run_install "$install_scratch" "$removed" >/dev/null 2>&1; then
+    echo "FAIL: bin/install $removed should exit non-zero; output: $removed_out" >&2
+    exit 1
+  fi
+  if ! echo "$removed_out" | grep -qF "Unknown argument: $removed"; then
+    echo "FAIL: bin/install $removed should be rejected as an unknown argument; output: $removed_out" >&2
+    exit 1
+  fi
+done
+
+# `--version v1.2.3` must not be read as a pin either: the tag is left as the
+# next argument and must itself be rejected rather than silently ignored.
+version_pin_out="$(run_install "$install_scratch" --version v1.2.3 2>&1 || true)"
+if ! echo "$version_pin_out" | grep -qF "Unknown argument: --version"; then
+  echo "FAIL: bin/install --version v1.2.3 should be rejected as an unknown argument; output: $version_pin_out" >&2
+  exit 1
+fi
+
+install_help_out="$(run_install "$install_scratch" --help 2>&1 || true)"
+for removed in --download --version; do
+  if echo "$install_help_out" | grep -q -- "$removed"; then
+    echo "FAIL: bin/install usage still documents $removed; output: $install_help_out" >&2
+    exit 1
+  fi
+done
+
+# Nothing above may have installed anything.
+[[ ! -d "$install_scratch/.claude" ]] || \
+  { echo "FAIL: a rejected removed-flag invocation performed a repo-local install" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# bin/agents no longer offers a `download` subcommand (dr-agents#483).
+# ---------------------------------------------------------------------------
+agents_download_out="$( cd "$install_scratch" \
+  && HOME="$fake_home" CODEX_CONFIG_DIR="$codex_dir" CLAUDE_CONFIG_DIR="$claude_dir" \
+     PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/agents" download 2>&1 || true )"
+if ! echo "$agents_download_out" | grep -qF "Unknown command: download"; then
+  echo "FAIL: agents download should be rejected as an unknown command; output: $agents_download_out" >&2
+  exit 1
+fi
+
+agents_usage_out="$( cd "$install_scratch" \
+  && HOME="$fake_home" PATH="$fake_bin:$PATH" \
+     bash "$repository_root/bin/agents" --help 2>&1 || true )"
+if echo "$agents_usage_out" | grep -q -- "download"; then
+  echo "FAIL: agents usage still documents a download route; output: $agents_usage_out" >&2
+  exit 1
+fi
 
 echo "bin/install tests passed"

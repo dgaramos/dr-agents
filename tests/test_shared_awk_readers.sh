@@ -9,7 +9,7 @@
 # no such assertion, so the comment was doing the work a check should do.
 #
 # The two cannot be literally byte-identical: bin/install sources nothing, on
-# purpose, because --download installs it standalone, so each script carries its
+# purpose, because each script must run standalone, so each carries its
 # own copy and the invocation line differs -- the field comes from a parameter in
 # one and is fixed in the other, and the file variable is named differently. Both
 # differences are on the first and last line of the extracted program. Everything

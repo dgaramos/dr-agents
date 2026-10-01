@@ -26,7 +26,6 @@ usage() {
 Usage: bin/install [--force]
        bin/install --global [--force]
        bin/install --repo [--profile <name>] [--force]
-       bin/install --download [--version <tag>]
        bin/install --status
        bin/install --workflows [--force]
 
@@ -45,14 +44,6 @@ Usage: bin/install [--force]
   --repo            Install claudio-dr plugin to .clone/ in the current repo.
                     Combine with --profile <name> to apply profile-specific
                     overrides from profiles/<name>.md.
-  --download        Download the catalog from GitHub releases and install globally.
-                    Resolves the latest release unless --version <tag> is given.
-                    Extracts to ~/.local/share/dr-agents/<version>/ and
-                    writes a catalog-path pointer file. Skips download when the
-                    version is already extracted. Previous version directories
-                    are preserved for manual rollback.
-  --version <tag>   Pin the download to a specific release tag (e.g. v1.2.3).
-                    Only valid with --download.
   --status          Show what is currently installed globally and in the current
                     repo's .claude/ directory.
   --workflows       Install managed workflow stubs from the catalog into
@@ -676,128 +667,24 @@ write_pointer_file() {
 }
 
 # Generate the agents CLI wrapper that reads the pointer file at runtime.
-# This makes the wrapper work for both clone-based and download-based installs;
-# the pointer file always points to the active catalog path.
+# The pointer file always points to the active catalog path, so the wrapper
+# does not need to be reinstalled when that path changes.
 write_agents_wrapper() {
   local pointer_file="$1"
   local dest="$2"
   mkdir -p "$(dirname "${dest}")"
   cat > "${dest}" <<EOF
 #!/usr/bin/env bash
-# agents — reads the catalog path from the pointer file at runtime so the
-# wrapper works for both clone-based (bin/install --global) and download-based
-# (bin/install --download) installs without needing to be reinstalled on update.
+# agents — reads the catalog path from the pointer file at runtime, so the
+# wrapper survives a change of catalog path without being reinstalled.
 _catalog="\$(cat "${pointer_file}" 2>/dev/null || true)"
 if [[ -z "\$_catalog" ]]; then
-  echo "agents: catalog not found; run agents install --global or bin/install --download" >&2
+  echo "agents: catalog not found; run agents install --global" >&2
   exit 1
 fi
 exec bash "\${_catalog}/bin/agents" "\$@"
 EOF
   chmod +x "${dest}"
-}
-
-# ---------------------------------------------------------------------------
-# Checksum helper — verify a downloaded file against its .sha256 sidecar.
-# Supports both sha256sum (Linux) and shasum -a 256 (macOS).
-# ---------------------------------------------------------------------------
-verify_checksum() {
-  local sha256_file="$1"
-  local check_dir="$2"  # directory in which the checksum paths are relative
-  if command -v sha256sum >/dev/null 2>&1; then
-    (cd "${check_dir}" && sha256sum --check "${sha256_file##*/}")
-  elif command -v shasum >/dev/null 2>&1; then
-    (cd "${check_dir}" && shasum -a 256 --check "${sha256_file##*/}")
-  else
-    echo "ERROR: neither sha256sum nor shasum is available; cannot verify checksum" >&2
-    exit 1
-  fi
-}
-
-# ---------------------------------------------------------------------------
-# --download [--version vX.Y.Z]
-# ---------------------------------------------------------------------------
-
-mode_download() {
-  local version="$1"  # may be empty → resolve latest from GitHub releases API
-
-  local catalog_store="${HOME}/.local/share/dr-agents"
-  local tmp_dir="${catalog_store}/tmp"
-  local repo_slug="dgaramos/dr-agents"
-  local api_base="https://api.github.com/repos/${repo_slug}"
-  local release_base="https://github.com/${repo_slug}/releases/download"
-
-  mkdir -p "${tmp_dir}"
-
-  # Resolve version
-  if [[ -z "${version}" ]]; then
-    echo "Resolving latest release from GitHub..."
-    # Through the same reader as the manifest versions. A release payload nests
-    # objects (`author`, `assets[]`), so selecting the first line that mentions
-    # the key is the same defect here as it was there; this takes the top-level
-    # field or fails.
-    #
-    # The response is still read from stdout and only then written to a file for
-    # the reader. Passing `curl -o` instead would have been the smaller diff and
-    # is wrong: what changed here is the parsing, not the transport, and
-    # tests/test_install_download.sh's curl stub answers /releases/latest on
-    # stdout. Switching to -o makes that fixture silently yield an empty file.
-    local api_response api_response_file
-    api_response="$(curl -fsSL "${api_base}/releases/latest")"
-    api_response_file="${tmp_dir}/releases-latest.json"
-    printf '%s' "${api_response}" > "${api_response_file}"
-    version="$(json_top_level_string tag_name "${api_response_file}")" || version=""
-    if [[ -z "${version}" ]]; then
-      echo "ERROR: could not resolve latest release version from GitHub" >&2
-      exit 1
-    fi
-    echo "  latest: ${version}"
-  fi
-
-  local extract_dir="${catalog_store}/${version}"
-
-  # Skip download when the version is already extracted
-  if [[ -d "${extract_dir}" ]]; then
-    echo "Version ${version} already extracted at ${extract_dir}; skipping download."
-    write_pointer_file "${extract_dir}"
-    _install_from_extracted "${extract_dir}"
-    return
-  fi
-
-  local tarball_name="dr-agents-${version}.tar.gz"
-  local sha256_name="dr-agents-${version}.sha256"
-
-  echo "Downloading ${tarball_name}..."
-  curl -fsSL "${release_base}/${version}/${tarball_name}" \
-    -o "${tmp_dir}/${tarball_name}"
-
-  echo "Downloading ${sha256_name}..."
-  curl -fsSL "${release_base}/${version}/${sha256_name}" \
-    -o "${tmp_dir}/${sha256_name}"
-
-  echo "Verifying checksum..."
-  verify_checksum "${tmp_dir}/${sha256_name}" "${tmp_dir}"
-
-  echo "Extracting to ${extract_dir}..."
-  mkdir -p "${extract_dir}"
-  tar -xzf "${tmp_dir}/${tarball_name}" -C "${extract_dir}" --strip-components=1
-
-  write_pointer_file "${extract_dir}"
-  _install_from_extracted "${extract_dir}"
-
-  echo ""
-  echo "Download install complete: ${extract_dir}"
-  echo "To update in the future, run: agents update --download"
-}
-
-# Run global install with REPO_DIR pointing to an extracted catalog directory.
-_install_from_extracted() {
-  local extracted_dir="$1"
-  REPO_DIR="${extracted_dir}" \
-    HOME="${HOME}" \
-    CODEX_CONFIG_DIR="${CODEX_CONFIG_DIR:-${HOME}/.codex}" \
-    CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}" \
-    bash "${extracted_dir}/bin/install" --global
 }
 
 # Copy an entire plugin directory tree, calling install_file for each file.
@@ -1463,11 +1350,10 @@ mode_status() {
 
 MODE=""
 PROFILE_NAME=""
-DOWNLOAD_VERSION=""
 FORCE=0
 
-# --global, --repo, --download, --status and --workflows are the five
-# alternative invocations in usage(); no two may be combined. Selecting the
+# --global, --repo, --status and --workflows are the four alternative
+# invocations in usage(); no two may be combined. Selecting the
 # mode through this helper rejects a conflicting pair during parsing, so the
 # rejection is order-independent and happens before any file is written.
 # Repeating the same flag is idempotent, not a conflict. `check_workflows` is
@@ -1490,18 +1376,6 @@ while [[ $# -gt 0 ]]; do
     --repo)
       set_mode "repo"
       shift
-      ;;
-    --download)
-      set_mode "download"
-      shift
-      ;;
-    --version)
-      if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "--version requires a version argument (e.g. --version v1.2.3)" >&2
-        exit 1
-      fi
-      DOWNLOAD_VERSION="$2"
-      shift 2
       ;;
     --profile)
       if [[ $# -lt 2 || -z "$2" ]]; then
@@ -1543,11 +1417,6 @@ if [[ "${PROFILE_NAME}" != "" && "${MODE}" != "repo" ]]; then
   exit 1
 fi
 
-if [[ -n "${DOWNLOAD_VERSION}" && "${MODE}" != "download" ]]; then
-  echo "--version is only valid with --download" >&2
-  exit 1
-fi
-
 if [[ "${FORCE}" == "1" && "${MODE}" == "status" ]]; then
   echo "--force is not valid with --status" >&2
   exit 1
@@ -1564,7 +1433,6 @@ case "${MODE}" in
   check_workflows) mode_check_workflows ;;
   global)          mode_global ;;
   repo)            mode_repo "${PROFILE_NAME}" ;;
-  download)        mode_download "${DOWNLOAD_VERSION}" ;;
   status)          mode_status ;;
   workflows)       mode_install_workflows ;;
 esac
