@@ -21,15 +21,12 @@ Commands:
   install                         Check workflow presence/drift in .github/workflows/
   install --global                Install claudio-dr and cody-dr globally
   install --repo [--profile N]    Install claudio-dr into the current repo
-  install --download [--version V] Download from GitHub releases and install globally
   install --workflows [--force]   Install managed workflows to .github/workflows/
-  download [--version V]          Alias for install --download [--version V]
   status                          Show installed versions and locations
   update --global [--force]       Pull catalog and update global install
   update --global --workflows     Pull catalog and update managed workflows in CWD
   update --repo [--profile N]     Pull catalog and update repo-local install
   update --all [--force]          Pull catalog and update both installs
-  update --download               Update a download-based install to the latest release
   (use --force to resolve conflicts: agents update --global --force)
 EOF
   exit 1
@@ -43,7 +40,6 @@ command="$1"; shift
 
 case "$command" in
   install)  exec bash "${REPO_DIR}/bin/install" "$@" ;;
-  download) exec bash "${REPO_DIR}/bin/install" --download "$@" ;;
   update)   exec bash "${REPO_DIR}/bin/update"  "$@" ;;
   status)   exec bash "${REPO_DIR}/bin/install" --status "$@" ;;
   help|-h|--help) usage ;;

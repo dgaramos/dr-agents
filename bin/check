@@ -67,7 +67,6 @@ readonly required_paths=(
   ".github/ISSUE_TEMPLATE/feature.md"
   ".github/ISSUE_TEMPLATE/bug.md"
   ".github/workflows/ci.yml"
-  ".github/workflows/release.yml"
   ".github/workflows/publish-cody-issue.yml"
   ".github/workflows/publish-cody-issue-comment.yml"
   ".github/workflows/publish-claudio-issue.yml"
@@ -276,8 +275,8 @@ readonly required_paths=(
 
 # Detect whether we are running inside a git repository.
 # Checks that require git (secret detection, pattern search, profile listing,
-# trailer validation) are skipped with a warning when running from an extracted
-# tarball that has no .git directory.
+# trailer validation) are skipped with a warning when running from a tree that
+# has no .git directory.
 if git rev-parse --git-dir >/dev/null 2>&1; then
   _IN_GIT_REPO=1
 else
@@ -869,15 +868,10 @@ bash tests/test_verify_publisher_capabilities.sh
 bash tests/test_verify_catalog_parity.sh
 bash tests/test_install.sh
 bash tests/test_update.sh
-bash tests/test_install_download.sh
 bash tests/test_install_workflows.sh
 # Vendored core/ files in a consumer (dr-agents#304). The check mode must name
 # the file and its state; a generic "vendored files found" is silence renamed.
 bash tests/test_install_vendored_core.sh
-# Mutually exclusive mode flags in bin/update (dr-agents#299). This test was
-# previously in no gate at all — neither here nor in ci.yml — so its broken
-# assertion could only ever be seen by running it by hand.
-bash tests/test_update_download.sh
 bash tests/test_reusable_ref_resolution.sh
 # The outdated-stub guard (dr-agents#268). This owns the rules that keep the
 # six minimum literals in agreement and each stub's `stub_version:` equal to its
@@ -1951,7 +1945,7 @@ fi
 # Validate that branch commits use one recognized adapter co-author identity.
 # In shallow clones (e.g. CI with fetch-depth != 0) git merge-base may fail;
 # emit a warning and skip the check rather than producing false positives.
-# When running from an extracted tarball (no git repo) this check is skipped.
+# Outside a git repository this check is skipped.
 if [[ "${_IN_GIT_REPO}" == "1" ]]; then
   if merge_base="$(git merge-base HEAD main 2>/dev/null)"; then
     while IFS= read -r commit; do

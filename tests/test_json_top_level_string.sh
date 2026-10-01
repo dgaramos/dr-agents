@@ -7,7 +7,7 @@
 # Five copies is the reason fixing one instance would not have held, so what is
 # guarded here is the single reading, not each call site.
 #
-# bin/install sources nothing on purpose — `--download` installs it standalone —
+# bin/install sources nothing on purpose — it must run standalone —
 # so the reader is necessarily duplicated between the two scripts. That makes
 # divergence the live risk, and it is what this file exists to catch: both
 # readers are EXTRACTED from the real scripts and run over one shared fixture
