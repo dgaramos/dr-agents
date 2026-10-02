@@ -763,13 +763,14 @@ readers="$tmp/readers.sh"
 # two branches answering alike on escaped input.
 awk '
   /^state_has_unrepresentable_escape\(\) \{$/ { inside = 1 }
+  /^registered_claudio_entries\(\) \{$/ { inside = 1 }
   /^registered_claudio_entry\(\) \{$/ { inside = 1 }
   /^registered_claudio_entry_field\(\) \{$/ { inside = 1 }
   /^registered_claudio_field\(\) \{$/ { inside = 1 }
   inside { print }
   inside && /^\}$/ { inside = 0 }
 ' "$repository_root/bin/install" > "$readers"
-for reader_fn in state_has_unrepresentable_escape registered_claudio_entry registered_claudio_entry_field registered_claudio_field; do
+for reader_fn in state_has_unrepresentable_escape registered_claudio_entries registered_claudio_entry registered_claudio_entry_field registered_claudio_field; do
   grep -q "^$reader_fn() {\$" "$readers" \
     || { echo "FAIL: could not extract $reader_fn from bin/install" >&2; exit 1; }
 done
@@ -811,6 +812,18 @@ read_field() {
     source "$1"
     registered_claudio_field "$2" "$3"
   ' _ "$readers" "$2" "$3"
+}
+
+# The whole recorded set, one entry per line. dr-agents#464: the completion
+# gate reads every entry rather than the selected one, so the array parser now
+# has a second caller whose answer is the full list — and that list must agree
+# across the two branches exactly as the single-field reading does.
+read_entries() {
+  # $1: PATH to run under, $2: state file
+  PATH="$1" bash -c '
+    source "$1"
+    registered_claudio_entries "$2"
+  ' _ "$readers" "$2"
 }
 
 fixtures="$tmp/reader-fixtures"
@@ -1012,6 +1025,72 @@ sweep_case() {
     echo "      state: $(cat "$state")" >&2
     exit 1
   }
+  # dr-agents#464: the same fixtures also exercise the WHOLE-SET reading the
+  # completion gate uses — every entry, in order, with no selection applied.
+  #
+  # The two branches are compared by their PROJECTION, not byte for byte: jq
+  # re-serializes each entry compactly while awk emits the recorded text, so
+  # equal bytes was never the property. What the gate consumes is the (scope,
+  # version) pair of every entry in order, so that is what must agree, and it
+  # is checked against an oracle built from the fixture's own parameters.
+  local entries_jq entries_awk pairs_jq pairs_awk pairs_expected
+  entries_jq="$(read_entries "$PATH" "$state")"
+  entries_awk="$(read_entries "$nojq_bin" "$state")"
+
+  local entry_path entry_line entry_scope entry_version index_seen
+  for entry_path in jq awk; do
+    local pairs="" source_entries projection_path
+    if [[ "$entry_path" == "jq" ]]; then
+      source_entries="$entries_jq"
+      projection_path="$PATH"
+    else
+      # The awk branch's own text, read back by the awk projection: each branch
+      # is checked end to end rather than having its list rescued by jq.
+      source_entries="$entries_awk"
+      projection_path="$nojq_bin"
+    fi
+    while IFS= read -r entry_line; do
+      [[ -n "$entry_line" ]] || continue
+      entry_scope="$(PATH="$projection_path" bash -c '
+        source "$1"
+        registered_claudio_entry_field "$2" scope
+      ' _ "$readers" "$entry_line")"
+      entry_version="$(PATH="$projection_path" bash -c '
+        source "$1"
+        registered_claudio_entry_field "$2" "$3"
+      ' _ "$readers" "$entry_line" "$field")"
+      pairs="$pairs[${entry_scope}|${entry_version}]"
+    done <<< "$source_entries"
+    if [[ "$entry_path" == "jq" ]]; then pairs_jq="$pairs"; else pairs_awk="$pairs"; fi
+  done
+
+  # The oracle: one pair per entry, in fixture order, scope and value decided
+  # by that entry's kind code alone.
+  pairs_expected=""
+  index_seen=0
+  for kind in ${kinds+"${kinds[@]}"}; do
+    local oracle_scope="" oracle_value=""
+    case "${kind:0:1}" in
+      u) oracle_scope="user" ;;
+      p) oracle_scope="project" ;;
+    esac
+    [[ "${kind:1:1}" == "s" ]] && oracle_value="e${index_seen}-value"
+    pairs_expected="$pairs_expected[${oracle_scope}|${oracle_value}]"
+    index_seen=$((index_seen + 1))
+  done
+
+  [[ "$pairs_jq" == "$pairs_awk" ]] || {
+    echo "FAIL: jq and awk disagree on the entry SET for shape [${kinds[*]-}] field $field:" >&2
+    echo "      jq  -> $pairs_jq" >&2
+    echo "      awk -> $pairs_awk" >&2
+    exit 1
+  }
+  [[ "$pairs_jq" == "$pairs_expected" ]] || {
+    echo "FAIL: entry SET for shape [${kinds[*]-}] field $field read $pairs_jq, rule says $pairs_expected" >&2
+    echo "      state: $(cat "$state")" >&2
+    exit 1
+  }
+
   sweep_checked=$((sweep_checked + 1))
 }
 
@@ -1162,6 +1241,12 @@ PATH="$nojq_bin" bash -c '
 # ---------------------------------------------------------------------------
 # dr-agents#461: a healthy global install is not rejected because a
 # project-scoped entry happens to be recorded first.
+#
+# Both entries are at the catalog version here, so what is under test is
+# ordering alone: the reader must not let a project-scoped entry recorded
+# first stand in for the user-scoped installation. dr-agents#464 covers the
+# case where that extra entry is STALE, which must fail — the fixture below
+# this one.
 # ---------------------------------------------------------------------------
 mixed_home="$tmp/mixed-home"
 mixed_claude_dir="$mixed_home/.claude"
@@ -1174,9 +1259,9 @@ mkdir -p "$mixed_home"
      bash "$repository_root/bin/install" --global >/dev/null 2>&1 )
 
 mixed_state="$mixed_claude_dir/plugins/installed_plugins.json"
-# Prepend a stale project-scoped registration to the healthy user-scoped one.
-jq '.plugins["claudio-dr@dr-agents"] =
-      ([{scope: "project", version: "0.0.1-project", installPath: "/project/claudio-dr"}]
+# Prepend a current project-scoped registration to the healthy user-scoped one.
+jq --arg version "$claudio_ver" '.plugins["claudio-dr@dr-agents"] =
+      ([{scope: "project", version: $version, installPath: "/project/claudio-dr"}]
        + .plugins["claudio-dr@dr-agents"])' \
   "$mixed_state" > "$mixed_state.tmp" && mv "$mixed_state.tmp" "$mixed_state"
 
@@ -1204,6 +1289,114 @@ echo "$mixed_output" | grep -q "Global install complete" \
 [[ "$(jq -r '[.plugins["claudio-dr@dr-agents"][] | select(.scope == "project")] | length' \
       "$mixed_state")" == "1" ]] \
   || { echo "FAIL: the project-scoped entry did not survive --global" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# dr-agents#464: the completion gate covers EVERY recorded entry
+#
+# The gate used to compare the catalog against the one entry
+# registered_claudio_version() selects — the user-scoped one. With a stale
+# project-scoped entry also recorded, that comparison passed and `Global
+# install complete` was printed over a state where `claude plugin list` still
+# printed a stale claudio-dr line. The gate can assure that *a* user-scoped
+# recording matches; it cannot assure that no stale recording remains, which is
+# what completion claims.
+#
+# The same fixture runs twice: once on an ordinary PATH, where the readers take
+# their jq branch, and once on a PATH without jq, where they take the awk
+# branch. Only the readers are denied jq — the CLI stubs re-add it internally,
+# because they are standing in for a tool that has its own dependencies and
+# the subject here is bin/install's reader, not the fake's.
+# ---------------------------------------------------------------------------
+nojq_cli_bin="$tmp/nojq-cli-bin"
+mkdir -p "$nojq_cli_bin"
+for tool in bash awk sed grep cat basename sort tail head printf dirname cmp diff mkdir rm ln mv cp chmod find touch date env jq; do
+  tool_path="$(command -v "$tool" 2>/dev/null)" || continue
+  [[ "$tool" == "jq" ]] && { jq_dir="$(dirname "$tool_path")"; continue; }
+  ln -sf "$tool_path" "$nojq_cli_bin/$tool"
+done
+for stub in claude codex; do
+  printf '#!/usr/bin/env bash\nPATH="%s:$PATH" exec bash "%s" "$@"\n' \
+    "$jq_dir" "$fake_bin/$stub" > "$nojq_cli_bin/$stub"
+  chmod +x "$nojq_cli_bin/$stub"
+done
+# Guard the guard: bin/install must really be unable to see jq under this PATH,
+# while the stubs it calls must really still work.
+if PATH="$nojq_cli_bin" command -v jq >/dev/null 2>&1; then
+  echo "FAIL: the no-jq CLI PATH still resolves jq for bin/install" >&2; exit 1
+fi
+
+stale_scope_version="0.0.1-project"
+for gate_path_label in jq awk; do
+  if [[ "$gate_path_label" == "jq" ]]; then
+    gate_path="$fake_bin:$PATH"
+  else
+    gate_path="$nojq_cli_bin"
+  fi
+  gate_home="$tmp/gate-$gate_path_label-home"
+  gate_claude_dir="$gate_home/.claude"
+  mkdir -p "$gate_home"
+  ( cd "$tmp" \
+    && HOME="$gate_home" CODEX_CONFIG_DIR="$gate_home/.codex" \
+       CLAUDE_CONFIG_DIR="$gate_claude_dir" \
+       CODEX_CALL_LOG="$tmp/gate-codex.log" CLAUDE_CALL_LOG="$tmp/gate-claude.log" \
+       PATH="$gate_path" \
+       bash "$repository_root/bin/install" --global >/dev/null 2>&1 ) \
+    || { echo "FAIL: could not prepare a healthy install on the $gate_path_label path" >&2; exit 1; }
+
+  gate_state="$gate_claude_dir/plugins/installed_plugins.json"
+  # A STALE project-scoped entry alongside a current user-scoped one.
+  jq --arg version "$stale_scope_version" '.plugins["claudio-dr@dr-agents"] =
+        (.plugins["claudio-dr@dr-agents"]
+         + [{scope: "project", version: $version, installPath: "/project/claudio-dr"}])' \
+    "$gate_state" > "$gate_state.tmp" && mv "$gate_state.tmp" "$gate_state"
+
+  # Guard the fixture: the user entry must be current and the project entry
+  # stale, or the gate is not being asked the question.
+  [[ "$(jq -r 'first(.plugins["claudio-dr@dr-agents"][] | select(.scope == "user") | .version)' \
+        "$gate_state")" == "$claudio_ver" \
+     && "$(jq -r 'first(.plugins["claudio-dr@dr-agents"][] | select(.scope == "project") | .version)' \
+        "$gate_state")" == "$stale_scope_version" ]] \
+    || { echo "FAIL: could not stage a current user entry beside a stale project entry" >&2; exit 1; }
+
+  if gate_output="$( cd "$tmp" \
+      && HOME="$gate_home" CODEX_CONFIG_DIR="$gate_home/.codex" \
+         CLAUDE_CONFIG_DIR="$gate_claude_dir" \
+         CODEX_CALL_LOG="$tmp/gate-codex.log" CLAUDE_CALL_LOG="$tmp/gate-claude.log" \
+         PATH="$gate_path" \
+         bash "$repository_root/bin/install" --global 2>&1 )"; then
+    echo "FAIL [$gate_path_label]: --global exited 0 with a stale project-scoped recording" >&2
+    echo "$gate_output" >&2
+    exit 1
+  fi
+  if echo "$gate_output" | grep -q "Global install complete"; then
+    echo "FAIL [$gate_path_label]: --global claimed completion over a stale project-scoped recording" >&2
+    echo "$gate_output" >&2
+    exit 1
+  fi
+  echo "$gate_output" | grep -qF "$stale_scope_version" \
+    || { echo "FAIL [$gate_path_label]: the diagnostic did not name the stale version; output: $gate_output" >&2; exit 1; }
+  echo "$gate_output" | grep -qF "scope: project" \
+    || { echo "FAIL [$gate_path_label]: the diagnostic did not name the stale entry's scope; output: $gate_output" >&2; exit 1; }
+  echo "$gate_output" | grep -qF "claude plugin list" \
+    || { echo "FAIL [$gate_path_label]: the diagnostic did not say what \`claude plugin list\` will print; output: $gate_output" >&2; exit 1; }
+
+  # The happy path on the same machinery: with the stale entry corrected to the
+  # catalog version, the gate must complete. Both scopes recorded, both current.
+  jq --arg version "$claudio_ver" '.plugins["claudio-dr@dr-agents"] =
+        (.plugins["claudio-dr@dr-agents"] | map(.version = $version))' \
+    "$gate_state" > "$gate_state.tmp" && mv "$gate_state.tmp" "$gate_state"
+  gate_ok_output="$( cd "$tmp" \
+    && HOME="$gate_home" CODEX_CONFIG_DIR="$gate_home/.codex" \
+       CLAUDE_CONFIG_DIR="$gate_claude_dir" \
+       CODEX_CALL_LOG="$tmp/gate-codex.log" CLAUDE_CALL_LOG="$tmp/gate-claude.log" \
+       PATH="$gate_path" \
+       bash "$repository_root/bin/install" --global 2>&1 )" \
+    || { echo "FAIL [$gate_path_label]: --global rejected a state where every entry is current" >&2
+         echo "$gate_ok_output" >&2; exit 1; }
+  echo "$gate_ok_output" | grep -q "Global install complete" \
+    || { echo "FAIL [$gate_path_label]: --global did not complete with every entry current; output: $gate_ok_output" >&2; exit 1; }
+  echo "ok: completion gate covers every recorded entry on the $gate_path_label reader path"
+done
 
 # ---------------------------------------------------------------------------
 # dr-agents#461 round 4, end to end on the reachable path.
