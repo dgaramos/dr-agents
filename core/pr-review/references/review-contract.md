@@ -119,13 +119,53 @@ suggested fix.
 
 ## Re-review
 
-When reviewing a PR again after changes, load all current threads, top-level
-comments, reviews, and their states. Locate the last head reviewed by the same
-reviewer by selecting that reviewer's most recent review whose body contains the
-`## Review —` marker. Ignore body-less review events: a review event with an
-empty body is a transport shell, not a review pass, and its `commit_id` is not a
-prior reviewed head. When the same reviewer has no such substantive review,
-declare the prior head unavailable and use the full base-to-head comparison.
+Classify the pass from the same reviewer's published review history on this
+PR (`GET /repos/{owner}/{repo}/pulls/{number}/reviews`, all pages), not from
+optional local state. A prior substantive review by that actor makes this a
+re-review. A substantive review has a body headed `## Review —` (first pass)
+or `## Re-review —` (compact delta or general findings); another actor's review
+does not establish this reviewer's prior pass. Record `review_kind` as `first`
+or `re-review` in the manifest. This classification changes placement only,
+never whether or how often to review a new head.
+
+Load all current threads, top-level comments, reviews, and their states. Locate
+the last head reviewed by the same reviewer by selecting that reviewer's most
+recent substantive review, using its `commit_id`. Ignore body-less review
+events for prior-head lookup: reply transport shells are not proof of a review
+pass, and an empty event alone cannot distinguish a completed pass from one.
+After an empty-body pass, the next pass therefore starts from the last
+substantive review, even if older; do not advance the baseline from a reply's
+commit or unverified local state. When none is available, declare the prior
+head unavailable and use the full base-to-head comparison. Legacy full
+re-review bodies headed `## Re-review —` remain discoverable.
+
+### Re-review response placement
+
+A first review keeps its full summary in `review_body`. On a re-review, deliver
+each previous finding's response in its originating thread, using the existing
+reply routing. Never restate the full summary in `review_body`: no verdict
+strip, walkthrough, scope/checks block, behavior map, or repeated findings table.
+Keep the complete pass record and preamble below in the terminal report, not
+in the published body.
+
+A re-review `review_body` may be empty when every finding-level response fits
+in a thread or inline entry and no general finding requires body text. This
+includes a pass with no findings or responses. Otherwise publish at most a
+short delta naming what changed since the previously reviewed head, headed
+`## Re-review — <PR/ref>`. The heading and delta together are limited to 600
+characters, including whitespace; put detailed evidence in the finding's
+thread. A non-empty delta names the compared heads, or the full-comparison
+fallback and its reason. It contains no other Markdown headings.
+
+New findings on right-hand diff lines still go through `inline_comments` (the
+publisher's `inline_comments_json` input). A new finding whose evidence is
+outside the diff and has no originating thread may follow the delta under
+`## General findings`, separated from the delta by one blank line and followed
+by one blank line. Each finding begins `### [general] <title>` and then its
+evidence and correction. These necessary findings are exempt from the delta
+character budget, but never license a repeated full summary. Existing general
+findings without a replyable thread may likewise be updated there. Keep the
+publication event `COMMENT` and the existing threading mechanics unchanged.
 
 1. If the prior SHA is trustworthy and ancestral to the current head, inspect
    only the diff from prior head to current head for new findings.
@@ -188,15 +228,17 @@ agent review may identify a blocking or important risk, but it must not submit
 with no findings and only when the target profile explicitly authorizes agent
 approval.
 
-Submit **one single PR review** through a publication manifest that bundles all
-findings and thread actions together:
+When a pass needs a review event, submit **one single PR review** through a
+publication manifest that bundles all findings and thread actions together.
+Re-review placement above determines whether an event is needed:
 
 - Findings whose evidence line is in the diff → inline comments in the review's
   `comments` array, each at the exact `path` and `line` (or `position`) from
   the evidence. Do not open a separate review per finding.
 - Findings whose evidence line is outside the diff or marked `[general]` →
   included in the review body, not as standalone pull request comments.
-- The review body also contains the summary block.
+- On a first review, the review body also contains the summary block. On a
+  re-review, apply Re-review response placement instead.
 
 Never submit multiple review events for the same pass. Never post findings as
 standalone pull request comments outside a review submission.
@@ -216,7 +258,7 @@ while expecting no review of the reviewer's own. On either route, any further
 review by the reviewer on that head, or any body-less review that carries an
 inline finding, is a real second event and a failure.
 
-The manifest contains `review_body`, `inline_comments`, `replies`, and
+The manifest declares `review_kind` (`first` or `re-review`) and contains `review_body`, `inline_comments`, `replies`, and
 `resolve_thread_ids`. `inline_comments` is an array of `{path, line, body}`:
 every formal finding on a changed line gets its own entry. Each entry also
 carries the finding's non-published `confidence` value, and the terminal summary
@@ -239,6 +281,7 @@ it:
   "repository": "OWNER/REPO",
   "pr_number": 42,
   "event": "COMMENT",
+  "review_kind": "first",
   "reviewed_head_sha": "0123456789abcdef0123456789abcdef01234567",
   "review_body": "## Summary\n\nThe verdict strip, then the collapsed block.",
   "inline_comments": [
@@ -256,8 +299,9 @@ it:
 }
 ```
 
-`repository` and `pr_number` name the target; every other field is the payload
-described above. `confidence` is transported and reported, never rendered into
+`repository` and `pr_number` name the target. `review_kind` is local validation
+metadata, not a publisher input; older saved manifests must be classified
+before validation. The remaining fields are the payload described above. `confidence` is transported and reported, never rendered into
 the published body. `comment_id` is the REST `databaseId` of a **top-level**
 review comment, and `resolve_thread_ids` entries are GraphQL review-thread node
 ids — the two identifiers that
@@ -336,9 +380,11 @@ the reply's `commit_id`, and the publisher states that rather than leaving the
 reader to discover it.
 
 Those shells are never review passes: they do not count as a pass and the
-prior-head lookup above ignores them. One substantive review event per pass
-remains the rule, and on the batched route it is now structural rather than
-circumstantial.
+prior-head lookup above ignores them. Submit at most one substantive review
+event per pass. A re-review whose responses all fit in threads may use the
+reply-only route with no substantive event; never add a full summary just to
+create an event or advance the prior-head baseline. A pass with no payload
+requires no publication.
 
 ### Thread reply anatomy
 
@@ -384,7 +430,9 @@ thread, verify the App resolved the intended thread.
 
 ## Summary
 
-Emit one summary block per review. Target and profile lead the body, because a
+Emit one summary block per review in the terminal report. Publish this full
+summary only on a first review; a re-review follows Re-review response
+placement instead. Target and profile lead the summary body, because a
 review summary is an adopting summary and RF-11 of
 `core/target-resolution/references/target-resolution-contract.md` is literal:
 every adopting summary *begins* with the target and profile facts. A verdict a
@@ -575,10 +623,10 @@ only, where it is reported as `not requested`, `not published`, or
 
 ## Re-review preamble
 
-A re-review body begins with this preamble, before the new-findings section.
-Keep one review per pass and never maintain an edited summary comment: GitHub
-reviews are immutable and linkable, and rewriting one destroys the history a
-reader needs. The `Superseded` field names the previous substantive review
+The terminal re-review report begins with this preamble before new findings;
+it is not copied into `review_body`. Publish only the compact delta and
+necessary general findings allowed by the response-placement rule above.
+Never maintain an edited summary comment: retain the immutable review history. The `Superseded` field names the previous substantive review
 located by the prior-head rule above.
 
 ```md

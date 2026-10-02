@@ -76,7 +76,7 @@ JSON
 }
 
 manifest() { # $1 destination, stdin JSON
-  cat >"$1"
+  jq '. + {review_kind: (.review_kind // "first")}' >"$1"
 }
 
 run_validator() {
@@ -276,6 +276,63 @@ cases=$((cases + 1))
 new_gh
 run_validator "$FAKE_DIR/does-not-exist.json"
 [ "$STATUS" -eq 2 ] || fail "G: expected usage exit 2 for a missing manifest, got $STATUS"
+cases=$((cases + 1))
+
+
+# Re-review bodies carry only a compact delta and necessary general findings.
+new_gh
+m="$FAKE_DIR/m.json"
+manifest "$m" <<JSON
+{"repository":"owner/repo","pr_number":7,"event":"COMMENT",
+ "review_kind":"re-review","reviewed_head_sha":"$HEAD_SHA",
+ "review_body":"## Review — owner/repo#7\n\n**Verdict:** Ready\n\n## Walkthrough\nRepeated full summary.",
+ "inline_comments":[],"replies":[],"resolve_thread_ids":[]}
+JSON
+run_validator "$m"
+[ "$STATUS" -eq 1 ] || fail "re-review: repeated full summary should fail"
+reports "re-review body constraint" re-review
+cases=$((cases + 1))
+
+for body in '' $'## Re-review — owner/repo#7\n\nDelta 2222222 → 1111111: the retry now preserves the request key.'; do
+  jq --arg body "$body" '.review_body = $body' "$m" >"$FAKE_DIR/next.json"
+  run_validator "$FAKE_DIR/next.json"
+  [ "$STATUS" -eq 0 ] || fail "re-review: empty or short delta should pass: $ALL"
+done
+cases=$((cases + 1))
+
+# General findings outside the diff may exceed the delta budget.
+jq '.review_body = ("## Re-review — owner/repo#7\n\nDelta: new off-diff finding.\n\n## General findings\n\n### [general] Retry policy\n" + ([range(0;80) | "Evidence outside the diff. "] | join("")))' "$m" >"$FAKE_DIR/general.json"
+run_validator "$FAKE_DIR/general.json"
+[ "$STATUS" -eq 0 ] || fail "re-review: necessary general findings should pass: $ALL"
+jq '.review_body += "\n\n## Walkthrough\nRepeated summary"' "$FAKE_DIR/general.json" >"$FAKE_DIR/next.json"
+run_validator "$FAKE_DIR/next.json"
+[ "$STATUS" -eq 1 ] || fail "re-review: summary hidden after general findings should fail"
+reports "re-review body constraint" general
+cases=$((cases + 1))
+
+for expression in \
+  '.review_body = ("## Re-review — owner/repo#7\n\n" + ([range(0;601) | "x"] | join("")))' \
+  '.review_body = "## Re-review — owner/repo#7\n\n**Verdict:** Ready"' \
+  '.review_body = "## Re-review — owner/repo#7\n\n## General findings\nUnlabeled summary"' \
+  '.review_body = 42'; do
+  jq "$expression" "$m" >"$FAKE_DIR/next.json"
+  run_validator "$FAKE_DIR/next.json"
+  [ "$STATUS" -eq 1 ] || fail "re-review: invalid body should fail ($expression)"
+  reports "re-review body constraint" invalid-body
+done
+cases=$((cases + 1))
+
+# Missing classification must not silently turn a re-review into a first pass.
+for expression in 'del(.review_kind)' '.review_kind = "unknown"'; do
+  jq "$expression" "$m" >"$FAKE_DIR/next.json"
+  run_validator "$FAKE_DIR/next.json"
+  [ "$STATUS" -eq 1 ] || fail "review_kind must be explicit"
+  reports "review_kind" classification
+done
+# The first review keeps its existing full summary.
+jq '.review_kind = "first"' "$m" >"$FAKE_DIR/next.json"
+run_validator "$FAKE_DIR/next.json"
+[ "$STATUS" -eq 0 ] || fail "first review summary should remain valid: $ALL"
 cases=$((cases + 1))
 
 echo "ok: test_validate_review_manifest.sh ($cases cases)"

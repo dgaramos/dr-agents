@@ -4,6 +4,26 @@ All notable changes to this catalog are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.45] - 2026-10-02
+
+Update both adapters with `agents update --global` to pick up the re-review
+placement rule. Older saved review manifests now need an explicit
+`review_kind` (`first` or `re-review`) before local validation.
+
+### Fixed
+
+- Re-reviews answer findings in their originating threads, with only an empty
+  body, compact delta, or necessary general findings at the top level. The
+  validator rejects repeated summary scaffolding and overlong deltas.
+- Prior-head lookup recognizes compact re-reviews while ignoring empty
+  transport events; both adapters reference the same portable placement rule.
+
+### Changed
+
+- Both adapter manifests, marketplace entries, and workflow markers carry
+  `0.1.45`.
+- Local `.dr-agents/manifests/` publication artifacts are ignored by Git.
+
 ## [0.1.44] - 2026-10-01
 
 Both helper agents stop recommending a removed command. Reinstall to pick up

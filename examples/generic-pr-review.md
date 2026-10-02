@@ -42,7 +42,8 @@ resolved from, as `Language: en (source: default)` when no profile or
 repository declaration names one. The walkthrough, the behavior map, and the pre-merge table appear only
 when the change size or a changed transition earns them.
 
-For authorized publication it emits one manifest: a summary with a walkthrough,
+For authorized first-review publication it emits one manifest with
+`"review_kind": "first"`: a summary with a walkthrough,
 evidence-based merge risk, actual checks, and a Mermaid behavior diagram when
 the interaction warrants one; plus one `{path, line, body}` entry for each diff-bound finding,
 and optional reply and resolution batches. General findings stay in the summary;
@@ -181,3 +182,29 @@ When a target repository has no configured reviewer App, an explicitly
 authorized local reviewer may publish under its own authenticated identity. If
 either configured reviewer App exists, it remains the required publisher; the
 local reviewer must not impersonate it or silently fall back.
+
+
+## Re-review placement example
+
+The same actor previously published `## Review — acme/widgets#42` at
+`2222222`. At `1111111`, it rechecks the retry finding and replies in the
+original thread with current-head evidence. Its manifest declares
+`"review_kind": "re-review"`; when all responses fit in threads and there are
+no general findings, `"review_body": ""` is valid. The reply transport shells
+do not advance the baseline: the next pass still compares from `2222222`.
+
+If a top-level delta is useful, the entire published body can instead be:
+
+```md
+## Re-review — acme/widgets#42
+
+Delta 2222222 → 1111111: retries now preserve the request key; the existing
+thread carries the verification evidence.
+```
+
+That substantive review's `commit_id` becomes the next baseline. A new finding
+outside the diff may append a blank line, `## General findings`, a blank line,
+and `### [general] Retry policy` with the finding's evidence and correction.
+It does not append the first review's verdict, walkthrough, or scope block.
+Another actor's review or a body-less transport event never supplies the
+baseline. With no trustworthy prior head, review the full base-to-head diff.

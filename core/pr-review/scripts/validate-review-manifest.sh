@@ -62,6 +62,32 @@ jq -e 'type == "array" and all(.[]; type == "string" and length > 0)' \
 [[ "$reviewed_head_sha" =~ ^[0-9a-f]{40}$ ]] \
   || problem "reviewed_head_sha must be a full 40-character SHA"
 
+# Classification is reviewer-owned, based on the same actor's review history.
+# Require it explicitly so old manifests cannot silently bypass the body rule.
+review_kind="$(field .review_kind)"
+[[ "$review_kind" == first || "$review_kind" == re-review ]] \
+  || problem "review_kind must be first or re-review (classify from same-actor review history)"
+if [[ "$review_kind" == re-review ]]; then
+  # A compact delta, optionally followed by off-diff general findings. Budget
+  # characters rather than bytes; findings are not charged to the delta budget.
+  # Reject the full-summary scaffolding even when hidden in a general section.
+  if ! jq -e '
+    .review_body | if type != "string" then false else
+      . == "" or (
+        (test("(?m)^#{1,6} (Summary|Walkthrough|Behavior map|Pre-merge|Scope|Review —)|^\\*\\*(Verdict|Next step|Scope|Checks|Limits|Previous findings|Discussion checked):|<details>"; "i") | not)
+        and (split("\n\n## General findings\n\n") as $parts
+          | ($parts | length) <= 2
+          and ($parts[0] | length) <= 600
+          and ($parts[0] | split("\n")[1:] | join("\n") | test("(?m)^#") | not)
+          and ($parts[0] | test("^## Re-review — [^\n]+\n\n[^\\s]"))
+          and (if ($parts | length) == 2 then
+            $parts[1] | test("^### \\[general\\] [^\n]+\n[^\\s]")
+          else true end))
+      ) end' "$manifest" >/dev/null 2>&1; then
+    problem "re-review body constraint: use an empty body or a delta of at most 600 characters under '## Re-review —', optionally followed by '## General findings' with labeled [general] findings; never repeat the full summary"
+  fi
+fi
+
 # --- head freshness ------------------------------------------------------
 if current_head="$(gh api "repos/${repository}/pulls/${pr_number}" --jq .head.sha 2>/dev/null)"; then
   current_head="$(printf '%s' "$current_head" | tr -d '[:space:]')"
