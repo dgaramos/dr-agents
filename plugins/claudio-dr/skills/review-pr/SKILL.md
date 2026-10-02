@@ -62,9 +62,9 @@ Findings whose evidence is outside the diff or marked `[general]` go in the
 review body, clearly labeled as general observations. Never collapse multiple
 inline findings into a single review body paragraph.
 
-Build the contract's batched publication manifest: write the portable summary
-with walkthrough, evidence-based merge risk, actual pre-merge checks, and a
-Mermaid behavior diagram only when it clarifies the change. Place every
+Build the contract's batched publication manifest. Follow its Re-review
+response placement and prior-head rules for classification and body content;
+the portable contract owns both first-review and re-review formatting. Place every
 changed-line formal finding in its own inline entry,
 and batch thread replies and resolutions only after their targets are verified.
 Before adding an inline finding, match it against all current human and bot
