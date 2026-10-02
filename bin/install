@@ -205,32 +205,30 @@ cody_version() {
   json_top_level_string version "${REPO_DIR}/plugins/cody-dr/.codex-plugin/plugin.json"
 }
 
-# The one place the "which claudio-dr@dr-agents entry does Claude use?"
-# question is answered. Claude Code records an array per plugin key, and the
-# global installation is the `scope == "user"` entry; a project-scoped entry
-# can precede it.
+# Every entry Claude Code records under the claudio-dr@dr-agents key, in the
+# order the file lists them, one JSON object per line. This is the whole
+# recorded set, with no selection applied — which is what `claude plugin list`
+# prints: it shows one line per recorded entry, each with its own `Version:`
+# and `Scope:`, and prefers none of them (measured on Claude Code 2.1.284 for
+# dr-agents#464).
 #
-# Selection and field projection are DELIBERATELY two functions, and this one
-# never learns a field name. Three rounds of dr-agents#461 were the same
-# mistake in different places: a reader that could compose "pick the entry"
-# and "read the field" in either order. The jq branch composed them the wrong
-# way round — it mapped the field over every entry and then took the first
-# non-empty result, so a user entry with no `version` fell through to a
-# project entry's value. Splitting the two steps is what makes that state
-# unrepresentable rather than merely absent: registered_claudio_entry_field()
-# is handed one entry and cannot see another scope to borrow from, in either
-# parser.
+# It is the ONE parser of the array, for both the jq and the awk branch.
+# Selection (registered_claudio_entry) is lifted out of it and written once in
+# shared shell, so the scope-preference rule cannot be implemented twice and
+# diverge — which is the class of defect dr-agents#461 was three rounds of.
 #
-# Prints the selected entry as a single JSON object, or nothing.
-registered_claudio_entry() {
+# Each entry is emitted on a single line so callers can iterate the set with
+# `read`. Collapsing the newlines of a pretty-printed entry is safe: a literal
+# newline cannot appear inside a JSON string, so every newline in an entry is
+# insignificant whitespace between tokens.
+registered_claudio_entries() {
   local state="$1"
 
   [[ -f "${state}" ]] || return 0
 
   if command -v jq >/dev/null 2>&1; then
     jq -c '
-      (.plugins["claudio-dr@dr-agents"] // [])
-      | ((map(select(.scope == "user")) + .) | first)
+      (.plugins["claudio-dr@dr-agents"] // [])[]
       | select(type == "object")
     ' "${state}" 2>/dev/null || true
     return 0
@@ -238,7 +236,7 @@ registered_claudio_entry() {
 
   # Without jq, slurp the file and walk the plugin's array string-aware.
   # Line-oriented matching cannot do this: a single-line state file puts
-  # every plugin's fields on one line, and scope selection needs entry
+  # every plugin's fields on one line, and entry iteration needs entry
   # boundaries, not the first match after a key.
   awk '
     { buf = buf $0 "\n" }
@@ -266,19 +264,63 @@ registered_claudio_entry() {
           continue
         }
         # The array closes at depth 0. Stopping there is part of the rule:
-        # without it a later plugin key supplies the entry.
+        # without it a later plugin key supplies the entries.
         if (c == "]" && depth == 0) break
       }
 
       for (i = 1; i <= count; i++) {
-        if (match(entries[i], /"scope"[[:space:]]*:[[:space:]]*"user"/)) {
-          print entries[i]
-          exit
-        }
+        entry = entries[i]
+        gsub(/\n/, " ", entry)
+        print entry
       }
-      if (count > 0) print entries[1]
     }
   ' "${state}" 2>/dev/null || true
+  return 0
+}
+
+# The one place the "which claudio-dr@dr-agents entry does bin/install treat as
+# the installation?" question is answered. Claude Code records an array per
+# plugin key, and the global installation is the `scope == "user"` entry; a
+# project-scoped entry can precede it.
+#
+# "Prefer the first user-scoped entry, else the first entry" is THIS
+# installer's own convention for naming one representative entry, not a rule
+# the Claude CLI applies. `claude plugin list` prints every recorded entry and
+# selects none (dr-agents#464), so nothing here should be described as "the
+# value `claude plugin list` prints"; a question about the whole recorded set
+# must read registered_claudio_entries() instead of this.
+#
+# Selection and field projection are DELIBERATELY two functions, and this one
+# never learns a field name. Three rounds of dr-agents#461 were the same
+# mistake in different places: a reader that could compose "pick the entry"
+# and "read the field" in either order. The jq branch composed them the wrong
+# way round — it mapped the field over every entry and then took the first
+# non-empty result, so a user entry with no `version` fell through to a
+# project entry's value. Splitting the two steps is what makes that state
+# unrepresentable rather than merely absent: registered_claudio_entry_field()
+# is handed one entry and cannot see another scope to borrow from, in either
+# parser.
+#
+# The scope test goes through registered_claudio_entry_field(), the same
+# depth-1 projection every other field read uses, rather than matching
+# `"scope": "user"` anywhere in the entry text: a quoted value can contain
+# that text, and the old awk branch would have selected on it.
+#
+# Prints the selected entry as a single JSON object, or nothing.
+registered_claudio_entry() {
+  local state="$1"
+
+  local entry first=""
+  while IFS= read -r entry; do
+    [[ -n "${entry}" ]] || continue
+    [[ -n "${first}" ]] || first="${entry}"
+    if [[ "$(registered_claudio_entry_field "${entry}" scope)" == "user" ]]; then
+      printf '%s\n' "${entry}"
+      return 0
+    fi
+  done < <(registered_claudio_entries "${state}")
+
+  [[ -n "${first}" ]] && printf '%s\n' "${first}"
   return 0
 }
 
@@ -564,8 +606,17 @@ registered_claudio_cache() {
   return 0
 }
 
-# The version Claude Code has RECORDED for claudio-dr@dr-agents — the value
-# `claude plugin list` prints, read straight from installed_plugins.json.
+# The version Claude Code has RECORDED for claudio-dr@dr-agents on the entry
+# this installer treats as the installation, read straight from
+# installed_plugins.json.
+#
+# This is ONE recorded version, not the recorded version. The selection is
+# bin/install's own convention (see registered_claudio_entry); `claude plugin
+# list` applies no selection and prints every entry, so a reading that must
+# hold for everything the operator can see — the completion gate — goes
+# through registered_claudio_recorded_versions() instead. This reader is for
+# the callers that legitimately want the one representative entry: the status
+# report and the installPath the payload comparison reads.
 #
 # dr-agents#455 is a defect in this field specifically, so the gate below
 # reads it rather than inferring it. Deriving it instead from
@@ -596,6 +647,44 @@ registered_claudio_version() {
   recorded="$(registered_claudio_field "${state}" version)"
 
   [[ -n "${recorded}" && "${recorded}" != "null" ]] && printf '%s\n' "${recorded}"
+  return 0
+}
+
+# Every recorded version for claudio-dr@dr-agents, one `scope<TAB>version`
+# line per entry, in the order installed_plugins.json lists them.
+#
+# This is the reading the completion gate needs, and the single-entry readers
+# above cannot give it: they answer "which entry does this installer call the
+# installation?", which can be current while another scope's recording is
+# stale. `claude plugin list` prints all of them, so a gate that reports
+# completion has to be satisfied with all of them.
+#
+# Scope and version come off each entry through registered_claudio_entry_field(),
+# so the whole-set reading reuses the same depth-1 projection and the same
+# single array parser as every other field read — nothing here is a third
+# implementation of either, and the jq/awk agreement is inherited rather than
+# re-established.
+#
+# A missing field prints an explicit placeholder rather than an empty column:
+# the gate's diagnostic has to name what it rejected.
+registered_claudio_recorded_versions() {
+  local claude_config="$1"
+  local state="${claude_config}/plugins/installed_plugins.json"
+
+  [[ -f "${state}" ]] || return 0
+
+  if state_has_unrepresentable_escape "${state}"; then
+    echo "state ${state} contains a \\uXXXX escape above 0x7F, which the jq-free reader cannot represent identically" >&2
+    return 1
+  fi
+
+  local entry scope version
+  while IFS= read -r entry; do
+    [[ -n "${entry}" ]] || continue
+    scope="$(registered_claudio_entry_field "${entry}" scope)"
+    version="$(registered_claudio_entry_field "${entry}" version)"
+    printf '%s\t%s\n' "${scope:-<no scope>}" "${version:-<no recorded version>}"
+  done < <(registered_claudio_entries "${state}")
   return 0
 }
 
@@ -1129,24 +1218,55 @@ mode_global() {
   # drift invisible: `claude plugin list` read one version while the catalog
   # manifest read another, and nothing in the flow said so.
   #
-  # The defect is in the `version` field of installed_plugins.json — the value
-  # `claude plugin list` prints — so the gate reads that field directly via
-  # registered_claudio_version(). Deriving it instead from the manifest at the
+  # The defect is in the `version` field of installed_plugins.json, so the gate
+  # reads that field directly. Deriving it instead from the manifest at the
   # recorded installPath reads a different value that can report the catalog
   # version while the field itself is still stale, or while nothing is
-  # recorded at all; see the helper for both reachable cases.
+  # recorded at all; see registered_claudio_version() for both reachable cases.
+  #
+  # It reads EVERY recorded entry, not the one registered_claudio_version()
+  # selects, and dr-agents#464 is why. What the operator can see is `claude
+  # plugin list`, which applies no scope selection and prints one line per
+  # recorded entry. A gate reading only the selected entry can assure that *a*
+  # user-scoped recording matches the catalog; it cannot assure that no stale
+  # recording remains, so it printed `Global install complete` over a state
+  # where `claude plugin list` still showed a stale claudio-dr version. The
+  # scope of the assurance now matches the scope of what is printed: no
+  # recorded entry, under any scope, may disagree with the catalog.
   #
   # registered_claudio_cache() is still read, but only to name the registered
   # location in the diagnostic.
-  local recorded_cache recorded_claudio_ver
+  local recorded_cache recorded_versions
   recorded_cache="$(registered_claudio_cache "${claude_config}")"
-  recorded_claudio_ver="$(registered_claudio_version "${claude_config}")"
-  if [[ "${recorded_claudio_ver}" != "${claudio_ver}" ]]; then
+  recorded_versions="$(registered_claudio_recorded_versions "${claude_config}")"
+
+  # Nothing recorded at all is its own failure: there is no entry to compare.
+  if [[ -z "${recorded_versions}" ]]; then
     echo "" >&2
-    echo "Claude records claudio-dr ${recorded_claudio_ver:-<no recorded version>}, but the catalog is at ${claudio_ver}." >&2
+    echo "Claude records claudio-dr <no recorded version>, but the catalog is at ${claudio_ver}." >&2
     echo "  recorded: ${recorded_cache:-<nothing registered>}" >&2
     echo "  catalog : ${REPO_DIR}" >&2
     echo "The install did not re-record the version. Not reporting completion." >&2
+    echo "Try: claude plugin update claudio-dr@dr-agents" >&2
+    exit 1
+  fi
+
+  local stale_entries="" entry_scope entry_version
+  while IFS=$'\t' read -r entry_scope entry_version; do
+    [[ -n "${entry_scope}${entry_version}" ]] || continue
+    [[ "${entry_version}" == "${claudio_ver}" ]] && continue
+    stale_entries="${stale_entries}  recorded: claudio-dr ${entry_version} (scope: ${entry_scope})"$'\n'
+  done <<< "${recorded_versions}"
+
+  if [[ -n "${stale_entries}" ]]; then
+    echo "" >&2
+    echo "Claude records a claudio-dr version that disagrees with the catalog at ${claudio_ver}." >&2
+    printf '%s' "${stale_entries}" >&2
+    echo "  registered: ${recorded_cache:-<nothing registered>}" >&2
+    echo "  catalog   : ${REPO_DIR}" >&2
+    echo "\`claude plugin list\` will print the version(s) above, because it prints every" >&2
+    echo "recorded entry and prefers no scope. The install did not re-record the version" >&2
+    echo "for every recorded entry. Not reporting completion." >&2
     echo "Try: claude plugin update claudio-dr@dr-agents" >&2
     exit 1
   fi
@@ -1177,7 +1297,7 @@ mode_global() {
   if [[ -n "${recorded_payload}" && -d "${recorded_payload}" ]]; then
     if ! diff -r -q "${recorded_payload}" "${REPO_DIR}/plugins/claudio-dr" >/dev/null 2>&1; then
       echo "" >&2
-      echo "Claude records claudio-dr ${recorded_claudio_ver}, and the catalog agrees," >&2
+      echo "Claude records claudio-dr ${claudio_ver} for every recorded entry, and the catalog agrees," >&2
       echo "but the registered payload differs from the catalog's." >&2
       echo "  recorded: ${recorded_payload}" >&2
       echo "  catalog : ${REPO_DIR}/plugins/claudio-dr" >&2
